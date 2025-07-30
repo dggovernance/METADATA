@@ -1,0 +1,21 @@
+AVG CASA/ Acct = 
+Var _acct_type = SELECTEDVALUE( Dim_Acct_type[Acct_type] )
+Var _max = max(Dim_Date[Date] )
+Var _rs = 
+    SWITCH(true(),
+        _acct_type="Zero fee", CALCULATE( SUM(CIF_TRANS_AMT[BALANCE_WEEK]), CIF_TRANS_AMT[SERVICE] ="CA", CIF_TRANS_AMT[ACCT_TYPE] = _acct_type)/ CALCULATE( sum(CIF_ACCT_CA[NUMBER_ACCT]), CIF_ACCT_CA[ACCT_TYPE] = _acct_type),
+        _acct_type="Normal",  CALCULATE( SUM(CIF_TRANS_AMT[BALANCE_WEEK]), CIF_TRANS_AMT[SERVICE] ="CA", CIF_TRANS_AMT[ACCT_TYPE] = _acct_type)/ CALCULATE( sum (CIF_ACCT_CA[NUMBER_ACCT]), CIF_ACCT_CA[ACCT_TYPE] = _acct_type ),
+        CALCULATE( SUM(CIF_TRANS_AMT[BALANCE_WEEK]), CIF_TRANS_AMT[SERVICE] ="CA")/sum (CIF_ACCT_CA[NUMBER_ACCT])
+    )
+return 
+IFERROR(IF(ISBLANK(_rs),0,_rs),0)
+
+;
+
+Amt Casa EOM = 
+var _EOM = MAX( Dim_Date[Date] )
+var _max_rpt = LASTNONBLANK( Dim_Date[Date] , [No of NTB] )
+return
+  //  switch(true() ,
+CALCULATE( SUM(CIF_TRANS_AMT[BALANCE_WEEK]), CIF_TRANS_AMT[SERVICE] ="CA", Dim_Date[Date] = _EOM )
+   // _EOM < _max_rpt, CALCULATE( SUM(CIF_TRANS_AMT[BALANCE_WEEK]), CIF_TRANS_AMT[SERVICE] ="CA", Dim_Date[Date] = _EOM ),CALCULATE( SUM(CIF_TRANS_AMT[BALANCE_WEEK]), CIF_TRANS_AMT[SERVICE] ="CA", Dim_Date[Date] = _max_rpt ) ))
