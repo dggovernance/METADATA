@@ -1,0 +1,2988 @@
+TEXT
+PROCEDURE     SP_ZERO_FEE_RPT
+AS
+BEGIN
+    ---1. Table cif all
+    EXECUTE IMMEDIATE 'truncate table ALL_CIF_Current_month';
+
+    INSERT INTO ALL_CIF_Current_month
+        SELECT *
+          FROM (WITH
+                    ca_cif
+                    AS                           --- lay cif co dky CA account
+                        (SELECT /*+ PARALLEL(8) */
+                                DISTINCT
+                                TRUNC (SYSDATE - 1)
+                                    AS report_date,                -- add 1608
+                                TO_CHAR (b.acct_open_date, 'mm/yyyy')
+                                    Month,
+                                b.client_no
+                           FROM (SELECT client_no,
+                                        deposit_type,
+                                        acct_open_date,
+                                        acct_status
+                                   FROM kmdw.sta_rb_acct@KMDW_2022
+                                 UNION ALL
+                                 SELECT client_no,
+                                        deposit_type,
+                                        acct_open_date,
+                                        acct_status
+                                   FROM kmdw.sta_rb_acct
+                                 UNION ALL
+                                 SELECT client_no,
+                                        deposit_type,
+                                        acct_open_date,
+                                        acct_status
+                                   FROM dtc.rb_acct) b
+                          WHERE     b.deposit_type IN ('C', 'S')
+                                AND b.acct_status IN ('A', 'N', 'D') ---edit 20Jul23 same with Pene
+                                                                    )
+                SELECT /*+ PARALLEL(8) */
+                       DISTINCT
+                       TO_CHAR (TRUNC (a.registered_date, 'mm'), 'mm/yyyy')
+                           Month,
+                       'Xxxxx'
+                           AS CLIENT_NAME,                ---edit name 16Aug23
+                       a.CLIENT_NO,
+                       a.REGISTERED_DATE,
+                       CASE
+                           WHEN    a.ctrl_branch IS NULL
+                                OR a.ctrl_branch IN ('166', '188')
+                           THEN
+                               '001'
+                           ELSE
+                               a.ctrl_branch
+                       END
+                           AS Branch_id --- branch id null/ TT KH DN lon gop vao HO
+                                       ,
+                       o.region                                 --- lay Region
+                               ,
+                       CASE
+                           WHEN    a.introducer_name LIKE '%CIF%ONLINE'
+                                OR CTRL_BRANCH = '689'
+                           THEN
+                               'ONLINE'
+                           ELSE
+                               'Branch'
+                       END
+                           Cif_channel                      --- add CIF_ONLINE
+                                      ,
+                       CASE
+                           WHEN m.client_no IS NOT NULL THEN 'Remittances'
+                           WHEN VJ2.CLIENT_NO IS NOT NULL THEN 'VJA'
+                           WHEN HD2.CLIENT_NO IS NOT NULL THEN 'HDSaiSon'
+                           ELSE 'Other'
+                       END
+                           Source_campaign,
+                       CASE
+                           WHEN a4.client_no IS NOT NULL THEN 'Ca_Cif'
+                           ELSE 'Other'
+                       END
+                           CA_CIF,
+                       a.Closed_date
+                           AS Closed_date,
+                       CASE
+                           WHEN (   TRUNC (a.registered_date, 'mm') <
+                                    TRUNC (a.closed_date, 'mm')
+                                 OR TRUNC (a.registered_date, 'mm') >
+                                    TRUNC (a.closed_date, 'mm'))
+                           THEN
+                               'ETB_Closed'
+                           WHEN TRUNC (a.registered_date, 'mm') =
+                                TRUNC (a.closed_date, 'mm')
+                           THEN
+                               'NTB_Closed'
+                       END
+                           Cif_closed,
+                       CASE
+                           WHEN vk.client_no IS NOT NULL THEN 'Y'
+                           ELSE 'N'
+                       END
+                           AS Vikki                   --edit 29May24 add vikki
+                  FROM kmdw.sta_fm_client  a
+                       ---join dtc.dm_demographics a1 on a.CLIENT_NO = a1.client_no
+                       LEFT JOIN
+                       (SELECT t.branch_id, t.branch_name, a.region
+                          FROM DBCC_Branch_dim  t
+                               JOIN DBCC_Region_dim a
+                                   ON t.branch_id = a.branch_id) o
+                           ON a.ctrl_branch = o.branch_id
+                       LEFT JOIN dtc.namnh_cif_from_remit_master m
+                           ON     a.client_no = m.client_no
+                              AND a.registered_date = m.date_open
+                       LEFT JOIN (SELECT DISTINCT CLIENT_NO
+                                    FROM kmdw.dtc_hdb_ekyc
+                                   WHERE partner_id LIKE 'HDSS%' --edit 03Jan24 add partnet HDSS
+                                                                ) HD2
+                           ON A.CLIENT_NO = HD2.CLIENT_NO ---EDIT 02Nov23 add new HDSS
+                       LEFT JOIN
+                       (SELECT DISTINCT REPORT_DATE, CLIENT_NO
+                          FROM DTC.Vj_Onboard
+                         WHERE userid NOT IN ('0934158728', 'THANHTRUC3980'))
+                       vj2
+                           ON A.CLIENT_NO = VJ2.CLIENT_NO ---- edit 02Nov23 add new VJA onboarding pass
+                       LEFT JOIN ca_cif a4
+                           ON     a.client_no = a4.client_no
+                              AND a4.month =
+                                  TO_CHAR (a.registered_date, 'mm/yyyy') ----cif_ca trong thang mo cif
+                       LEFT JOIN
+                       (SELECT DISTINCT client_no
+                          FROM KMDW.HDBKM_HUYDONG_TONGHOP
+                         WHERE     sym_run_date = TRUNC (SYSDATE - 1)
+                               AND acct_type IN ('7VP', '7OV', '0VT')) vk
+                           ON a.client_no = vk.client_no --edit 29May24 add vikki
+                 WHERE     1 = 1
+                       AND a.CLIENT_TYPE IN ('DIN', 'FIN') --- loai KH doanh nghiep
+                       AND a.CLIENT_NAME NOT LIKE '%HDB%' --- Loai KH la bank/ TCTC
+                                                         );
+
+    COMMIT;
+
+    UPDATE ALL_CIF_Current_month
+       SET REGISTERED_DATE = '07-MAR-2020'
+     WHERE REGISTERED_DATE = '07-MAR-2030';
+
+    COMMIT;
+
+    INSERT INTO tbl_job_log (run_date, pro_name, process)
+         VALUES (SYSDATE, 'Zero fee Dashboard', '1. CIF TABLE');
+
+    COMMIT;
+
+    -------------------2. data all EB
+    SP_ALL_EB_TRACKING ();
+
+    INSERT INTO tbl_job_log (run_date, pro_name, process)
+         VALUES (SYSDATE, 'Zero fee Dashboard', '2. ALL_EB_TRACKING');
+
+    COMMIT;
+
+    ----------------3. Zero data
+    ----SP: EB Giao dich chu dong
+    -----table tran_in last 6 month
+    DELETE FROM dtc.Active_tran_sum_hist --- history chay trong script check_gd_chu_dong all
+          WHERE rpt_date >= TRUNC (SYSDATE - 1, 'mm'); --edit 08Nov23 not in ( select distinct last_day(etl_date) from dtc.date_dim);
+
+    COMMIT;
+
+    INSERT INTO Active_tran_sum_hist
+        WITH
+            active_trans_6m
+            AS
+                (  SELECT /*+ PARALLEL(8) */
+                          TRUNC (SYSDATE - 1)     AS tnx_month,
+                          b.client_no,
+                          COUNT (a.TRAN_TYPE)     cnt_6m
+                     FROM KMDW.STA_RB_TRAN_HIST A -----SELECT * FROM KMDW.STA_RB_TRAN_HIST
+                          JOIN
+                          (SELECT client_no, internal_key FROM KMDW.sta_rb_acct
+                           UNION
+                           SELECT client_no, internal_key
+                             FROM KMDW.sta_rb_acct@kmdw_2022) b
+                              ON a.INTERNAL_KEY = B.INTERNAL_KEY
+                    WHERE     TRUNC (a.tran_date) >=
+                              ADD_MONTHS (SYSDATE - 1, -6) --- du lieu trans last 6m for current month
+                          AND (a.CR_DR_MAINT_IND = 'D' OR SOURCE_MODULE = 'BT')
+                          AND REVERSAL_TRAN_TYPE IS NULL
+                          AND a.tran_type NOT LIKE '%#%'
+                          AND a.TRAN_TYPE NOT IN
+                                  (SELECT tran_code
+                                     FROM dtc.namnh_tran_type_dict
+                                    WHERE TRAN_TYPE_GROUP IN
+                                              ('Fee', 'Interest Received')) ---loai fee/ Int auto
+                          AND a.TRAN_TYPE NOT IN ('FD05', 'FD06') -- loai TD auto tai tuc
+                 GROUP BY TRUNC (SYSDATE - 1), b.client_no)
+          SELECT tnx_month,
+                 ''                               EB_REGIST,
+                 ''                               LOGIN_EB,
+                 ''                               TRAN_TNX,
+                 'Y'                              AS ACTI_TRAN_6M,
+                 a.CIF_CHANNEL,
+                 a.SOURCE_CAMPAIGN,
+                 a.CA_CIF,
+                 COUNT (DISTINCT t.client_no)     AS CUST_NUM,
+                 TRUNC (SYSDATE - 1)              AS rpt_date,
+                 a.vikki                             -- edit 29May24 add Vikki
+            FROM active_trans_6m t
+                 JOIN ALL_CIF_Current_month a ON T.CLIENT_NO = a.client_no
+           WHERE 1 = 1                              -- t.client_no ='02412101'
+        ---and t.client_no in (select client_no from ACTI_FIN_TRANS where TNX_MONTH between '01/03/2022' and '31/08/2022')
+        GROUP BY tnx_month,
+                 'Y',
+                 a.CIF_CHANNEL,
+                 a.SOURCE_CAMPAIGN,
+                 a.CA_CIF,
+                 a.vikki;
+
+    COMMIT;
+
+    ------
+    EXECUTE IMMEDIATE 'truncate table EB_tracking';
+
+    INSERT INTO EB_tracking
+        SELECT *
+          FROM (WITH
+                    EB_NTB
+                    AS                      -----edit 02Nov23 adjust EB_REGIST
+                        (SELECT REGISTERED_DATE,
+                                client_no,
+                                CIF_CHANNEL,
+                                SOURCE_CAMPAIGN,
+                                CA_CIF,
+                                CASE
+                                    WHEN EB_REGIST = 'NTB'
+                                    THEN
+                                        'NTB' --- thang dky cif = thang dky EB
+                                    WHEN    EB_REGISTERED_DATE IS NULL
+                                         OR TRUNC (t.EB_REGISTERED_DATE,
+                                                   'mm') >
+                                            TRUNC (t.REGISTERED_DATE, 'mm')
+                                    THEN
+                                        'NTB_No_EB'
+                                END    EB_REGIST --- no EB trong thang dky CIF
+                                                ,
+                                Vikki                           --- edit 29May
+                           FROM DTC.All_EB_Tracking t
+                          WHERE    EB_REGIST IS NULL
+                                OR EB_REGIST NOT IN
+                                       ('S3_EB_NEW', 'HDSS_EB_NEW')
+                         UNION ALL
+                         SELECT EB_REGISTERED_DATE,
+                                client_no,
+                                CIF_CHANNEL,
+                                SOURCE_CAMPAIGN,
+                                CA_CIF,
+                                CASE
+                                    WHEN EB_REGIST = 'S3_EB_NEW'
+                                    THEN
+                                        'S3_NEW'
+                                    WHEN EB_REGIST = 'HDSS_EB_NEW'
+                                    THEN
+                                        'HDSS_NEW'
+                                END    EB_REGIST,
+                                Vikki                          ---edit 29May24
+                           FROM DTC.All_EB_Tracking t
+                          WHERE EB_REGIST IN ('S3_EB_NEW', 'HDSS_EB_NEW')
+                         UNION ALL
+                         SELECT EB_REGISTERED_DATE,
+                                client_no,
+                                CIF_CHANNEL,
+                                SOURCE_CAMPAIGN,
+                                CA_CIF,
+                                'ETB'     EB_REGIST,
+                                Vikki                         ----edit 29May24
+                           FROM DTC.All_EB_Tracking t
+                          WHERE     TRUNC (t.EB_REGISTERED_DATE, 'mm') >
+                                    TRUNC (t.REGISTERED_DATE, 'mm')
+                                AND EB_REGIST NOT IN
+                                        ('S3_EB_NEW', 'HDSS_EB_NEW'))
+                  SELECT TRUNC (b.log_date, 'mm')         AS sym_date,
+                         ''                               EB_REGIST,
+                         'Y'                              AS Login_EB,
+                         ''                               TRAN_TNX,
+                         ''                               ACTI_TRAN_6M,
+                         a.CIF_CHANNEL,
+                         a.SOURCE_CAMPAIGN,
+                         a.CA_CIF,
+                         COUNT (DISTINCT a.client_no)     AS cust_num,
+                         a.vikki                               ---edit 29May24
+                    FROM (SELECT REPORT_DATE,
+                                 CUSTOMERNUMBER    AS CLIENT_NO,
+                                 MAX_LOGIN_WEB,
+                                 MAX_LOGIN_APP,
+                                 CASE
+                                     WHEN MAX_LOGIN_WEB IS NULL
+                                     THEN
+                                         MAX_LOGIN_APP
+                                     WHEN MAX_LOGIN_APP IS NULL
+                                     THEN
+                                         MAX_LOGIN_WEB
+                                     ELSE
+                                         GREATEST (MAX_LOGIN_WEB,
+                                                   MAX_LOGIN_APP)
+                                 END               AS LOG_DATE  --MAX_LOG_DATE
+                            FROM (  SELECT REPORT_DATE,
+                                           CUSTOMERNUMBER,
+                                           MAX (TRUNC (LAST_LOGIN_WEB))
+                                               AS max_login_web,
+                                           MAX (TRUNC (LAST_LOGIN_APP))
+                                               AS MAX_LOGIN_APP
+                                      FROM DTC.HDB_LOGIN_SUCCESS_MONTHLY a --BANG TRONG PROC LOGIN_SUCCESS_MONTHLY
+                                     WHERE     REPORT_DATE >=
+                                               TRUNC (
+                                                     TRUNC (SYSDATE - 1, 'YEAR')
+                                                   - 1,
+                                                   'YEAR')       -- HIST 1 NAM
+                                           AND (   LAST_LOGIN_APP IS NOT NULL
+                                                OR LAST_LOGIN_WEB IS NOT NULL)
+                                  GROUP BY REPORT_DATE, CUSTOMERNUMBER)) b
+                         JOIN DTC.ALL_CIF_Current_month a
+                             ON a.client_no = b.client_no
+                GROUP BY TRUNC (b.log_date, 'mm'),
+                         a.CIF_CHANNEL,
+                         a.SOURCE_CAMPAIGN,
+                         a.CA_CIF,
+                         a.vikki                                --edit 29May24
+                UNION ALL                                          ---- EB_NTB
+                  SELECT TRUNC (REGISTERED_DATE, 'mm')     AS sym_date,
+                         EB_REGIST,
+                         ''                                Login_EB,
+                         ''                                TRAN_TNX,
+                         ''                                ACTI_TRAN_6M,
+                         CIF_CHANNEL,
+                         SOURCE_CAMPAIGN,
+                         CA_CIF,
+                         COUNT (DISTINCT t1.client_no)     AS cust_num,
+                         Vikki                                 ---edit 29May24
+                    FROM EB_NTB t1
+                GROUP BY TRUNC (REGISTERED_DATE, 'mm'),
+                         EB_REGIST,
+                         CIF_CHANNEL,
+                         SOURCE_CAMPAIGN,
+                         CA_CIF,
+                         Vikki                                 ---edit 29May24
+                UNION ALL
+                SELECT rpt_date     AS sym_date,
+                       EB_REGIST,
+                       LOGIN_EB,
+                       TRAN_TNX,
+                       ACTI_TRAN_6M,
+                       CIF_CHANNEL,
+                       SOURCE_CAMPAIGN,
+                       CA_CIF,
+                       TO_NUMBER (CUST_NUM),
+                       Vikki                                   ---edit 29May24
+                  FROM Active_tran_sum_hist -------- CIF co giao dich chu dong all channel in the last 6 months
+                UNION ALL                         --- GD chu dong Edit 05Jul23
+                  SELECT TNX_DATE,
+                         ''                               AS EB_REGIST,
+                         ''                               Login_EB,
+                         'EB'                             AS Tran_tnx,
+                         ''                               ACTI_TRAN_6M,
+                         CIF_CHANNEL,
+                         SOURCE_CAMPAIGN,
+                         CA_CIF,
+                         COUNT (DISTINCT t.client_no)     AS cust_num,
+                         Vikki                                 ---edit 29May24
+                    FROM (  SELECT TRUNC (TNX_DATE, 'MM')     AS TNX_DATE,
+                                   CLIENT_NO,
+                                   SUM (SL_TNX)
+                              FROM EB_Active_Trans --- SP_DAILY_GD_CHUDONG_EX2_V2
+                             WHERE 1 = 1
+                          GROUP BY TRUNC (TNX_DATE, 'MM'), CLIENT_NO) t
+                         JOIN ALL_CIF_Current_month c
+                             ON t.client_no = c.client_no
+                GROUP BY TNX_DATE,
+                         CIF_CHANNEL,
+                         SOURCE_CAMPAIGN,
+                         CA_CIF,
+                         Vikki                                 ---edit 29May24
+                              );
+
+    COMMIT;
+
+    --==========new service regist (SP_NTB_AMT_SERVICE_REGIST)============
+    ---=== CIF CLOSED==============
+    EXECUTE IMMEDIATE 'truncate table Cif_closed';
+
+    INSERT INTO Cif_closed
+          SELECT CLOSED_DATE,
+                 branch_id,
+                 CIF_CHANNEL,
+                 SOURCE_CAMPAIGN,
+                 CIF_CLOSED,
+                 COUNT (DISTINCT client_no)     AS no_cif_closed,
+                 Vikki                                         ---edit 29May24
+            FROM ALL_CIF_CURRENT_MONTH
+           WHERE CLOSED_DATE IS NOT NULL
+        GROUP BY CLOSED_DATE,
+                 branch_id,
+                 CIF_CHANNEL,
+                 SOURCE_CAMPAIGN,
+                 CIF_CLOSED,
+                 Vikki                                         ---edit 29May24
+                      ;
+
+    COMMIT;
+
+    ----===============ALL CIF  regist-==========================
+    EXECUTE IMMEDIATE 'truncate table All_cif';
+
+    INSERT INTO All_cif
+        (  SELECT t.REGISTERED_DATE,
+                  t.BRANCH_ID,
+                  t.REGION,
+                  t.CIF_CHANNEL,
+                  t.SOURCE_CAMPAIGN,
+                  t.CA_CIF,
+                  CASE
+                      WHEN closed_date IS NOT NULL THEN 'Closed'
+                      ELSE 'Active'
+                  END                             CLOSED_CIF,
+                  t.CIF_CLOSED                    AS Cif_closed_type,
+                  a1.EB_REGISTERED_DATE,
+                  CASE
+                      WHEN     a1.client_no IS NOT NULL
+                           AND (   TO_CHAR (A1.REGISTERED_DATE, 'mm/yyyy') =
+                                   TO_CHAR (a1.EB_REGISTERED_DATE, 'mm/yyyy')
+                                OR TRUNC (A1.REGISTERED_DATE, 'mm') >
+                                   TRUNC (a1.EB_REGISTERED_DATE, 'mm'))
+                      THEN
+                          'EB_NTB'                     --- Eb date <= CIF date
+                      WHEN     a1.client_no IS NOT NULL
+                           AND TRUNC (A1.REGISTERED_DATE, 'mm') <
+                               TRUNC (a1.EB_REGISTERED_DATE, 'mm')
+                      THEN
+                          'EB_after_Cif'                --- EB date > cif date
+                      WHEN    a1.client_no IS NULL
+                           OR a1.EB_REGISTERED_DATE IS NULL
+                      THEN
+                          'No_EBanking'
+                  END                             Eb_regist,
+                  a1.LOGIN_EB                     NTB_Login_EB  --, LAST_LOGIN
+                                                              ,
+                  COUNT (DISTINCT t.client_no)    AS number_cust,
+                  t.Vikki                                      ---edit 29May24
+             FROM ALL_CIF_CURRENT_MONTH t ---- select * from ALL_CIF_CURRENT_MONTH
+                  LEFT JOIN All_EB_Tracking a1 ON t.client_no = a1.client_no
+         GROUP BY t.REGISTERED_DATE,
+                  t.BRANCH_ID,
+                  t.REGION,
+                  t.CIF_CHANNEL,
+                  t.SOURCE_CAMPAIGN,
+                  t.CA_CIF,
+                  CASE
+                      WHEN closed_date IS NOT NULL THEN 'Closed'
+                      ELSE 'Active'
+                  END,
+                  t.CIF_CLOSED,
+                  EB_REGISTERED_DATE,
+                  CASE
+                      WHEN     a1.client_no IS NOT NULL
+                           AND (   TO_CHAR (A1.REGISTERED_DATE, 'mm/yyyy') =
+                                   TO_CHAR (a1.EB_REGISTERED_DATE, 'mm/yyyy')
+                                OR TRUNC (A1.REGISTERED_DATE, 'mm') >
+                                   TRUNC (a1.EB_REGISTERED_DATE, 'mm'))
+                      THEN
+                          'EB_NTB'                     --- Eb date <= CIF date
+                      WHEN     a1.client_no IS NOT NULL
+                           AND TRUNC (A1.REGISTERED_DATE, 'mm') <
+                               TRUNC (a1.EB_REGISTERED_DATE, 'mm')
+                      THEN
+                          'EB_after_Cif'                --- EB date > cif date
+                      WHEN    a1.client_no IS NULL
+                           OR a1.EB_REGISTERED_DATE IS NULL
+                      THEN
+                          'No_EBanking'
+                  END,
+                  a1.LOGIN_EB,
+                  t.Vikki                                      ---edit 29May24
+                         );
+
+    COMMIT;
+
+    --=== campaign  channel=====
+    EXECUTE IMMEDIATE 'truncate table SOURCE_CAMPAIGN_NTB';
+
+    INSERT INTO SOURCE_CAMPAIGN_NTB
+        SELECT DISTINCT Source_campaign
+          FROM ALL_CIF_Current_month;
+
+    COMMIT;
+
+    ----
+    EXECUTE IMMEDIATE 'truncate table Cif_channel_NTB';
+
+    INSERT INTO Cif_channel_NTB
+        SELECT DISTINCT Cif_channel
+          FROM ALL_CIF_Current_month;
+
+    COMMIT;
+
+    INSERT INTO tbl_job_log (run_date, pro_name, process)
+         VALUES (SYSDATE, 'Zero fee Dashboard', '3.1 All Cif');
+
+    COMMIT;
+
+    ----- NTB dki service trong thang mo cif----08:20 --- keep for NTB---
+    EXECUTE IMMEDIATE 'truncate table NTB_sevice';
+
+    INSERT INTO NTB_sevice
+        SELECT *
+          FROM (WITH
+                    ca_td
+                    AS
+                        (SELECT /*+ PARALLEL(8) */
+                                DISTINCT
+                                TO_CHAR (b.acct_open_date, 'mm/yyyy')
+                                    Monthly,
+                                b1.registered_date,
+                                b.client_no,
+                                CASE
+                                    WHEN deposit_type = 'C' THEN 'CA'
+                                    WHEN deposit_type = 'T' THEN 'TD'
+                                END
+                                    Service,
+                                b1.source_campaign,
+                                Cif_channel,
+                                Ca_cif                                  ---add
+                                      ,
+                                ROW_NUMBER ()
+                                    OVER (
+                                        PARTITION BY b.client_no,
+                                                     deposit_type
+                                        ORDER BY acct_open_date ASC)
+                                    rk,
+                                b1.Vikki                       ---edit 29May24
+                           FROM KMDW.sta_rb_acct  B
+                                JOIN ALL_CIF_Current_month b1
+                                    ON     b.client_no = b1.client_no
+                                       AND TO_CHAR (b.acct_open_date,
+                                                    'mm/yyyy') =
+                                           b1.month
+                          WHERE     b1.registered_date >=
+                                    ADD_MONTHS (TRUNC (SYSDATE - 1, 'YEAR'),
+                                                -24)                  -- 2 NAM
+                                AND b.acct_open_date >=
+                                    ADD_MONTHS (TRUNC (SYSDATE - 1, 'YEAR'),
+                                                -24)
+                                AND deposit_type IN ('T', 'C') --- lay cho TD/ CA
+                                                              ),
+                    CRC
+                    AS
+                        (SELECT DISTINCT
+                                TO_CHAR (a.card_date_open, 'mm/yyyy')
+                                    AS monthly,
+                                registered_date,
+                                a.client_no,
+                                'CC'
+                                    Service,
+                                a1.source_campaign,
+                                Cif_channel,
+                                Ca_cif,
+                                ROW_NUMBER ()
+                                    OVER (PARTITION BY a.client_no
+                                          ORDER BY a.card_date_open ASC)
+                                    rk,
+                                a1.Vikki                       ---edit 29May24
+                           FROM dtc.dm_credit_card_general_tmp  a
+                                JOIN ALL_CIF_Current_month a1
+                                    ON     a.client_no = a1.client_no
+                                       AND TO_CHAR (a.card_date_open,
+                                                    'mm/yyyy') =
+                                           a1.month
+                          WHERE     a1.registered_date >=
+                                    ADD_MONTHS (TRUNC (SYSDATE - 1, 'YEAR'),
+                                                -24)
+                                AND a.CARD_PRODUCT_CODE LIKE
+                                        '%!_CR!_%' ESCAPE '!'--and a.CARD_CONTR_STATUS != 'Cancelled'
+                                                             ),
+                    Debit
+                    AS
+                        (SELECT DISTINCT
+                                TO_CHAR (a.crd_date_open, 'mm/yyyy')
+                                    AS monthly,
+                                registered_date,
+                                a.crd_client_no
+                                    AS client_no,
+                                'DB'
+                                    Service,
+                                a1.source_campaign,
+                                Cif_channel,
+                                Ca_cif,
+                                ROW_NUMBER ()
+                                    OVER (PARTITION BY a.crd_client_no
+                                          ORDER BY a.crd_date_open ASC)
+                                    rk,
+                                a1.Vikki                       ---edit 29May24
+                           FROM DTC.DM_CARD_INFO  a
+                                JOIN ALL_CIF_Current_month a1
+                                    ON     a.crd_client_no = a1.client_no
+                                       AND TO_CHAR (a.crd_date_open,
+                                                    'mm/yyyy') =
+                                           a1.month
+                          WHERE     a1.registered_date >=
+                                    ADD_MONTHS (TRUNC (SYSDATE - 1, 'YEAR'),
+                                                -24)
+                                AND a.CRD_PROD_CODE LIKE
+                                        '%!_DB!_%' ESCAPE '!'),
+                    Loan
+                    AS
+                        (SELECT /*+ PARALLEL(8) */
+                                DISTINCT
+                                TO_CHAR (a4.NGAY_GIAINGAN, 'mm/yyyy')
+                                    monthly,
+                                registered_date,
+                                a4.makh,
+                                'LOAN'
+                                    Service,
+                                a5.source_campaign,
+                                Cif_channel,
+                                Ca_cif,
+                                ROW_NUMBER ()
+                                    OVER (PARTITION BY a4.makh
+                                          ORDER BY a4.NGAY_GIAINGAN ASC)
+                                    rk,
+                                a5.Vikki                       ---edit 29May24
+                           FROM kmdw.hdb_sao_ke_du_no_vay_qlrr  a4
+                                JOIN ALL_CIF_Current_month a5
+                                    ON     a4.makh = a5.client_no
+                                       AND TO_CHAR (a4.NGAY_GIAINGAN,
+                                                    'mm/yyyy') =
+                                           a5.month
+                          WHERE     a5.registered_date >=
+                                    ADD_MONTHS (TRUNC (SYSDATE - 1, 'YEAR'),
+                                                -24)
+                                AND loaikh_glcode = 'CaNhan' ---a4.sym_run_date = last_day(a4.sym_run_date) and
+                                AND a4.sym_run_date = TRUNC (SYSDATE - 1)
+                                AND NGAY_GIAINGAN >=
+                                    ADD_MONTHS (TRUNC (SYSDATE - 1, 'YEAR'),
+                                                -24)),
+                    Banca
+                    AS
+                        (SELECT DISTINCT
+                                TO_CHAR (c.issue_date, 'mm/yyyy')       Monthly,
+                                registered_date,
+                                c.client_no,
+                                'Banca'                                 Service,
+                                c1.source_campaign,
+                                Cif_channel,
+                                Ca_cif,
+                                ROW_NUMBER ()
+                                    OVER (PARTITION BY c.client_no
+                                          ORDER BY c.issue_date ASC)    rk,
+                                c1.Vikki                       ---edit 29May24
+                           FROM KMDW.c360_banca_dtl  c
+                                JOIN ALL_CIF_Current_month c1
+                                    ON     c.client_no = c1.client_no
+                                       AND TO_CHAR (c.issue_date, 'mm/yyyy') =
+                                           c1.month
+                          WHERE     c1.registered_date >=
+                                    ADD_MONTHS (TRUNC (SYSDATE - 1, 'YEAR'),
+                                                -24)
+                                AND issue_date >=
+                                    ADD_MONTHS (TRUNC (SYSDATE - 1, 'YEAR'),
+                                                -24)
+                                AND dtc.FN_CONVERT_TO_VN (
+                                        c.policy_status_desc) LIKE
+                                        '%Co hieu luc'),
+                    Bond
+                    AS
+                        (SELECT DISTINCT
+                                TO_CHAR (d.NGAY_GIAO_DICH, 'mm/yyyy')
+                                    AS Monthly,
+                                registered_date,
+                                d.client_no,
+                                'Bond'
+                                    AS Service,
+                                Source_campaign,
+                                b1.Cif_channel,
+                                b1.CA_CIF,
+                                ROW_NUMBER ()
+                                    OVER (PARTITION BY d.client_no
+                                          ORDER BY d.NGAY_GIAO_DICH ASC)
+                                    rk                -- lay ngay dki dau tien
+                                      ,
+                                b1.Vikki                       ---edit 29May24
+                           FROM KMDW.HDBKM_TPDN_HOPDONG_MUA_TP  d ---HDBKM_TPDN_OM_BAN_TRAIPHIEU d _ upate table on 26Jun23
+                                JOIN ALL_CIF_Current_month b1
+                                    ON     d.client_no = b1.client_no
+                                       AND TO_CHAR (d.NGAY_GIAO_DICH,
+                                                    'mm/yyyy') =
+                                           b1.month --- chi lay NTB trong thang
+                          WHERE     b1.registered_date >=
+                                    ADD_MONTHS (TRUNC (SYSDATE - 1, 'YEAR'),
+                                                -24)
+                                AND d.sym_run_date = TRUNC (SYSDATE - 1))
+                  --- union--
+                  SELECT monthly,
+                         registered_date,
+                         SERVICE,
+                         SOURCE_CAMPAIGN,
+                         Cif_channel,
+                         Ca_cif,
+                         COUNT (DISTINCT client_no)     AS Num_cust,
+                         Vikki                                 ---edit 29May24
+                    FROM ca_td a
+                   WHERE rk = 1
+                GROUP BY monthly,
+                         registered_date,
+                         SERVICE,
+                         SOURCE_CAMPAIGN,
+                         Cif_channel,
+                         Ca_cif,
+                         Vikki                                 ---edit 29May24
+                UNION ALL
+                  SELECT monthly,
+                         registered_date,
+                         SERVICE,
+                         SOURCE_CAMPAIGN,
+                         Cif_channel,
+                         Ca_cif,
+                         COUNT (DISTINCT makh)     AS Num_cust,
+                         Vikki                                 ---edit 29May24
+                    FROM Loan b
+                   WHERE rk = 1
+                GROUP BY monthly,
+                         registered_date,
+                         SERVICE,
+                         SOURCE_CAMPAIGN,
+                         Cif_channel,
+                         Ca_cif,
+                         Vikki                                 ---edit 29May24
+                UNION ALL
+                  SELECT monthly,
+                         registered_date,
+                         SERVICE,
+                         SOURCE_CAMPAIGN,
+                         Cif_channel,
+                         Ca_cif,
+                         COUNT (DISTINCT client_no)     AS Num_cust,
+                         Vikki                                 ---edit 29May24
+                    FROM CRC c
+                   WHERE rk = 1
+                GROUP BY monthly,
+                         registered_date,
+                         SERVICE,
+                         SOURCE_CAMPAIGN,
+                         Cif_channel,
+                         Ca_cif,
+                         Vikki
+                UNION ALL
+                  SELECT monthly,
+                         registered_date,
+                         SERVICE,
+                         SOURCE_CAMPAIGN,
+                         Cif_channel,
+                         Ca_cif,
+                         COUNT (DISTINCT client_no)     AS Num_cust,
+                         Vikki                                 ---edit 29May24
+                    FROM Debit m                                       --- add
+                   WHERE rk = 1
+                GROUP BY monthly,
+                         registered_date,
+                         SERVICE,
+                         SOURCE_CAMPAIGN,
+                         Cif_channel,
+                         Ca_cif,
+                         Vikki
+                UNION ALL
+                  SELECT monthly,
+                         registered_date,
+                         SERVICE,
+                         SOURCE_CAMPAIGN,
+                         Cif_channel,
+                         Ca_cif,
+                         COUNT (DISTINCT client_no)     AS Num_cust,
+                         Vikki                                 ---edit 29May24
+                    FROM Banca d
+                   WHERE rk = 1
+                GROUP BY monthly,
+                         registered_date,
+                         SERVICE,
+                         SOURCE_CAMPAIGN,
+                         Cif_channel,
+                         Ca_cif,
+                         Vikki
+                UNION ALL
+                  SELECT monthly,
+                         registered_date,
+                         SERVICE,
+                         SOURCE_CAMPAIGN,
+                         Cif_channel,
+                         Ca_cif,
+                         COUNT (DISTINCT client_no)     AS Num_cust,
+                         Vikki                                 ---edit 29May24
+                    FROM Bond d
+                   WHERE rk = 1
+                GROUP BY monthly,
+                         registered_date,
+                         SERVICE,
+                         SOURCE_CAMPAIGN,
+                         Cif_channel,
+                         Ca_cif,
+                         Vikki
+                UNION ALL
+                  SELECT t.month                          AS monthly,
+                         t.registered_date,
+                         'EBanking'                       AS SERVICE,
+                         t.SOURCE_CAMPAIGN,
+                         t.Cif_channel,
+                         t.Ca_cif,
+                         COUNT (DISTINCT t.client_no)     AS Num_cust,
+                         Vikki
+                    FROM dtc.All_EB_Tracking t           ----NTB_EB_tracking t
+                   WHERE     (t.EB_REGIST LIKE '%NEW%' OR t.EB_REGIST = 'NTB') --edit 20feb25
+                         AND t.registered_date >=
+                             ADD_MONTHS (TRUNC (SYSDATE - 1, 'YEAR'), -24)
+                         AND TRUNC (EB_REGISTERED_DATE, 'mm') =
+                             TRUNC (t.registered_date, 'mm') --- eb = cif_month
+                GROUP BY t.month,
+                         t.registered_date,
+                         'EBanking',
+                         t.SOURCE_CAMPAIGN,
+                         t.Cif_channel,
+                         t.Ca_cif,
+                         Vikki);
+
+    COMMIT;
+
+    ---===== Table sl CA Acct --Xoa thang hien tai, insert data moi vao daily ======add to job
+    DELETE FROM CIF_acct_ca
+          WHERE sym_run_date >= TRUNC (SYSDATE, 'mm'); --- select trunc (sysdate,'mm') from dual
+
+    COMMIT;
+
+    INSERT INTO CIF_acct_ca
+        WITH
+            a1
+            AS
+                (SELECT TRUNC (sym_run_date)    AS sym_run_date,
+                        acct_no,
+                        a.client_no,
+                        deposit_type,
+                        CASE
+                            WHEN     sym_run_date >= '01-Aug-2022'
+                                 AND ACCT_TYPE IN ('7OL',
+                                                   '7ZR',
+                                                   '7PR',
+                                                   '7PL',
+                                                   '70M',
+                                                   '70G',
+                                                   '708',
+                                                   '702',
+                                                   '700',
+                                                   '701',
+                                                   '7AA',
+                                                   '70A',
+                                                   '719',
+                                                   '718',
+                                                   '704',
+                                                   '705',
+                                                   '7HS',
+                                                   '7BV',
+                                                   '726',
+                                                   '724',
+                                                   '7SV',
+                                                   '7CO')
+                            THEN
+                                'Zero_fee'
+                            ELSE
+                                'Normal'
+                        END                     Acct_type,
+                        CASE
+                            WHEN e.client_no IS NOT NULL THEN 'Y'
+                            ELSE 'N'
+                        END                     EB,
+                        e.Vikki                                ---edit 29May24
+                   FROM kmdw.ft_rb_acct  a
+                        LEFT JOIN ALL_EB_TRACKING e
+                            ON     a.client_no = e.client_no
+                               AND e.EB_REGISTERED_DATE IS NOT NULL --- edit 21Jul23
+                  WHERE     sym_run_date >= TRUNC (SYSDATE, 'mm')
+                        AND (   EXTRACT (DAY FROM sym_run_date) IN (7,
+                                                                    14,
+                                                                    21,
+                                                                    28)
+                             OR sym_run_date = LAST_DAY (sym_run_date)
+                             OR sym_run_date = TRUNC (SYSDATE - 1))
+                        AND deposit_type IN ('C', 'S')
+                        AND acct_status IN ('A', 'D', 'N'))
+          SELECT sym_run_date,
+                 Acct_type,
+                 EB,
+                 COUNT (DISTINCT acct_no)     AS NUMBER_ACCT,
+                 Vikki                                         ---edit 29May24
+            FROM a1
+        GROUP BY sym_run_date,
+                 Acct_type,
+                 EB,
+                 Vikki                                         ---edit 29May24
+                      ;
+
+    COMMIT;
+
+    INSERT INTO tbl_job_log (run_date, pro_name, process)
+         VALUES (SYSDATE, 'Zero fee Dashboard', '3.2 NTB_Service Acct_ca');
+
+    COMMIT;
+
+    --=========================Sp: tran amt=============================
+    ---execute immediate 'truncate table CIF_trans_amt';
+    DELETE FROM dtc.CIF_trans_amt
+          WHERE TRUNC (BALANCE_DATE, 'MM') = TRUNC (SYSDATE - 1, 'MM'); -- INSERT CURRENT MONTH ONLY
+
+    COMMIT;
+
+    INSERT INTO CIF_trans_amt
+        SELECT /*+ PARALLEL(8) */
+               *
+          FROM (WITH
+                    balance_ca
+                    AS
+                        (  SELECT /*+ PARALLEL(8) */
+                                  TO_CHAR (t.sym_run_date, 'mm/yyyy')
+                                      AS Monthly,
+                                  t.sym_run_date
+                                      AS balance_date,
+                                  t1.source_campaign,
+                                  'CA'
+                                      AS Service,
+                                  t1.Cif_channel,
+                                  t1.ca_cif,
+                                  CASE
+                                      WHEN TRUNC (t1.registered_date, 'mm') >=
+                                           TRUNC (t.sym_run_date, 'mm')
+                                      THEN
+                                          'NTB'
+                                      WHEN TRUNC (t1.registered_date, 'mm') <
+                                           TRUNC (t.sym_run_date, 'mm')
+                                      THEN
+                                          'ETB'
+                                  END
+                                      Client_type,
+                                  CASE
+                                      WHEN t.acct_type = '7OL' THEN 'Online'
+                                      ELSE 'OTC'
+                                  END
+                                      AS Channel,
+                                  CASE
+                                      WHEN     t.sym_run_date >= '01-Aug-2022'
+                                           AND t.ACCT_TYPE IN ('7OL',
+                                                               '7ZR',
+                                                               '7PR',
+                                                               '7PL',
+                                                               '70M',
+                                                               '70G',
+                                                               '708',
+                                                               '702',
+                                                               '700',
+                                                               '701',
+                                                               '7AA',
+                                                               '70A',
+                                                               '719',
+                                                               '718',
+                                                               '704',
+                                                               '705',
+                                                               '7HS',
+                                                               '7BV',
+                                                               '726',
+                                                               '724',
+                                                               '7SV',
+                                                               '7CO')
+                                      THEN
+                                          'Zero_fee'
+                                      ELSE
+                                          'Normal'
+                                  END
+                                      Acct_type,
+                                  CASE
+                                      WHEN t.sym_run_date =
+                                           LAST_DAY (t.sym_run_date)
+                                      THEN
+                                          SUM (t.SODU_QD)
+                                  END
+                                      EOM_Balance,
+                                  SUM (t.SODU_QD)
+                                      AS Balance_Week,
+                                  CASE
+                                      WHEN e.client_no IS NOT NULL THEN 'Y'
+                                      ELSE 'N'
+                                  END
+                                      EB,
+                                  t1.Vikki
+                             FROM ALL_CIF_Current_month t1
+                                  JOIN KMDW.HDBKM_HUYDONG_TONGHOP t
+                                      ON t.client_no = t1.client_no
+                                  LEFT JOIN ALL_EB_TRACKING e
+                                      ON     t1.client_no = e.client_no
+                                         AND e.EB_REGISTERED_DATE IS NOT NULL
+                            WHERE     t.LOAI_KHACHHANG = 'CN'
+                                  AND TRUNC (t.sym_run_date, 'mm') =
+                                      TRUNC (SYSDATE - 1, 'mm') -- thang hien tai
+                                  AND (   EXTRACT (DAY FROM t.sym_run_date) IN
+                                              (7,
+                                               14,
+                                               21,
+                                               28)
+                                       OR t.sym_run_date =
+                                          LAST_DAY (t.sym_run_date)
+                                       OR t.sym_run_date = TRUNC (SYSDATE - 1)) --- lay data theo week
+                                  AND PERIOD IS NULL
+                         GROUP BY t.sym_run_date,
+                                  t1.source_campaign,
+                                  'CA',
+                                  t1.Cif_channel,
+                                  t1.ca_cif,
+                                  CASE
+                                      WHEN TRUNC (t1.registered_date, 'mm') >=
+                                           TRUNC (t.sym_run_date, 'mm')
+                                      THEN
+                                          'NTB'
+                                      WHEN TRUNC (t1.registered_date, 'mm') <
+                                           TRUNC (t.sym_run_date, 'mm')
+                                      THEN
+                                          'ETB'
+                                  END,
+                                  CASE
+                                      WHEN t.acct_type = '7OL' THEN 'Online'
+                                      ELSE 'OTC'
+                                  END,
+                                  CASE
+                                      WHEN     t.sym_run_date >=
+                                               '01-Aug-2022'
+                                           AND t.ACCT_TYPE IN ('7OL',
+                                                               '7ZR',
+                                                               '7PR',
+                                                               '7PL',
+                                                               '70M',
+                                                               '70G',
+                                                               '708',
+                                                               '702',
+                                                               '700',
+                                                               '701',
+                                                               '7AA',
+                                                               '70A',
+                                                               '719',
+                                                               '718',
+                                                               '704',
+                                                               '705',
+                                                               '7HS',
+                                                               '7BV',
+                                                               '726',
+                                                               '724',
+                                                               '7SV',
+                                                               '7CO')
+                                      THEN
+                                          'Zero_fee'
+                                      ELSE
+                                          'Normal'
+                                  END,
+                                  CASE
+                                      WHEN e.client_no IS NOT NULL THEN 'Y'
+                                      ELSE 'N'
+                                  END,
+                                  t1.Vikki),
+                    balance_td
+                    AS
+                        (  SELECT TO_CHAR (t.sym_run_date, 'mm/yyyy')
+                                      AS Monthly,
+                                  t.sym_run_date
+                                      AS balance_date,
+                                  t1.source_campaign,
+                                  'TD'
+                                      AS Service,
+                                  t1.Cif_channel,
+                                  t1.ca_cif,
+                                  CASE
+                                      WHEN TRUNC (t1.registered_date, 'mm') >=
+                                           TRUNC (t.sym_run_date, 'mm')
+                                      THEN
+                                          'NTB'
+                                      WHEN TRUNC (t1.registered_date, 'mm') <
+                                           TRUNC (t.sym_run_date, 'mm')
+                                      THEN
+                                          'ETB'
+                                  END
+                                      Client_type,
+                                  CASE
+                                      WHEN     sym_run_date < '28-Feb-2023'
+                                           AND t.acct_type IN ('ON0', 'ONG')
+                                      THEN
+                                          'Online'
+                                      WHEN     sym_run_date >= '28-Feb-2023'
+                                           AND t.acct_type LIKE 'ON%'
+                                      THEN
+                                          'Online'
+                                      ELSE
+                                          'OTC'
+                                  END
+                                      AS Channel,
+                                  'Normal'
+                                      AS Acct_type,
+                                  CASE
+                                      WHEN t.sym_run_date =
+                                           LAST_DAY (t.sym_run_date)
+                                      THEN
+                                          SUM (t.SODU_QD)
+                                  END
+                                      EOM_Balance,
+                                  SUM (t.SODU_QD)
+                                      AS Balance_Week,
+                                  CASE
+                                      WHEN e.client_no IS NOT NULL THEN 'Y'
+                                      ELSE 'N'
+                                  END
+                                      EB,
+                                  t1.Vikki
+                             FROM ALL_CIF_Current_month t1
+                                  JOIN KMDW.HDBKM_HUYDONG_TONGHOP t
+                                      ON t.client_no = t1.client_no
+                                  LEFT JOIN ALL_EB_TRACKING e
+                                      ON     t1.client_no = e.client_no
+                                         AND e.EB_REGISTERED_DATE IS NOT NULL
+                            WHERE     t.LOAI_KHACHHANG = 'CN'
+                                  AND TRUNC (t.sym_run_date, 'mm') =
+                                      TRUNC (SYSDATE - 1, 'mm') -- thang hien tai
+                                  AND (   EXTRACT (DAY FROM t.sym_run_date) IN
+                                              (7,
+                                               14,
+                                               21,
+                                               28)
+                                       OR t.sym_run_date =
+                                          LAST_DAY (t.sym_run_date)
+                                       OR t.sym_run_date = TRUNC (SYSDATE - 1))
+                                  AND PERIOD IS NOT NULL
+                         GROUP BY t.sym_run_date,
+                                  t1.source_campaign,
+                                  'TD',
+                                  t1.Cif_channel,
+                                  t1.ca_cif,
+                                  t.acct_type,
+                                  CASE
+                                      WHEN TRUNC (t1.registered_date, 'mm') >=
+                                           TRUNC (t.sym_run_date, 'mm')
+                                      THEN
+                                          'NTB'
+                                      WHEN TRUNC (t1.registered_date, 'mm') <
+                                           TRUNC (t.sym_run_date, 'mm')
+                                      THEN
+                                          'ETB'
+                                  END,
+                                  CASE
+                                      WHEN     sym_run_date < '28-Feb-2023'
+                                           AND t.acct_type IN ('ON0', 'ONG')
+                                      THEN
+                                          'Online'
+                                      WHEN     sym_run_date >= '28-Feb-2023'
+                                           AND t.acct_type LIKE 'ON%'
+                                      THEN
+                                          'Online'
+                                      ELSE
+                                          'OTC'
+                                  END,
+                                  'Normal',
+                                  CASE
+                                      WHEN e.client_no IS NOT NULL THEN 'Y'
+                                      ELSE 'N'
+                                  END,
+                                  t1.Vikki),
+                    Oustanding_card
+                    AS                                                 --- CRC
+                        (  SELECT TO_CHAR (a2.sym_run_date, 'mm/yyyy')
+                                      monthly,
+                                  a2.sym_run_date
+                                      AS balance_date,
+                                  source_campaign,
+                                  'CC'
+                                      AS Service,
+                                  Cif_channel,
+                                  ca_cif,
+                                  CASE
+                                      WHEN TRUNC (a3.registered_date, 'mm') =
+                                           TRUNC (a2.sym_run_date, 'mm')
+                                      THEN
+                                          'NTB' ---- CRC lay dung thang Kh tao cif de lay dung sl KH NTB
+                                      ELSE
+                                          'ETB'
+                                  END
+                                      Client_type,
+                                  'OTC'
+                                      AS Channel,
+                                  'Normal'
+                                      AS Acct_type,
+                                  CASE
+                                      WHEN a2.sym_run_date =
+                                           LAST_DAY (a2.sym_run_date)
+                                      THEN
+                                          SUM (duno_acnt)
+                                  END
+                                      EOM_Balance,
+                                  SUM (duno_acnt)
+                                      Balance_Week,
+                                  ''
+                                      EB,
+                                  a3.Vikki
+                             FROM ALL_CIF_Current_month a3
+                                  JOIN
+                                  (SELECT DISTINCT
+                                          LOC_ACCT     AS loc_contract_number,
+                                          CLIENT_NO
+                                     FROM KMDW.km_the_thongtin) a1
+                                      ON a3.client_no = a1.client_no --dtc.dm_credit_card_general_tmp
+                                  JOIN kmdw.W4_THONGTIN_BILL a2
+                                      ON a1.loc_contract_number = a2.loc_acct
+                            WHERE     TRUNC (a2.sym_run_date, 'mm') =
+                                      TRUNC (SYSDATE - 1, 'mm') -- thang hien tai
+                                  AND (   EXTRACT (DAY FROM a2.sym_run_date) IN
+                                              (7,
+                                               14,
+                                               21,
+                                               28)
+                                       OR a2.sym_run_date =
+                                          LAST_DAY (a2.sym_run_date)
+                                       OR a2.sym_run_date = TRUNC (SYSDATE - 1))
+                         GROUP BY sym_run_date,
+                                  source_campaign,
+                                  'CC',
+                                  Cif_channel,
+                                  ca_cif,
+                                  CASE
+                                      WHEN TRUNC (a3.registered_date, 'mm') =
+                                           TRUNC (a2.sym_run_date, 'mm')
+                                      THEN
+                                          'NTB' ---- CRC lay dung thang Kh tao cif de lay dung sl KH NTB
+                                      ELSE
+                                          'ETB'
+                                  END,
+                                  'OTC',
+                                  'Normal',
+                                  '',
+                                  a3.Vikki),
+                    Loan_balance
+                    AS
+                        (  SELECT TO_CHAR (a4.sym_run_date, 'mm/yyyy')
+                                      monthly,
+                                  a4.sym_run_date
+                                      AS balance_date,
+                                  t.source_campaign,
+                                  'LOAN'
+                                      AS Service,
+                                  Cif_channel,
+                                  ca_cif,
+                                  CASE
+                                      WHEN TRUNC (t.registered_date, 'mm') >=
+                                           TRUNC (a4.sym_run_date, 'mm')
+                                      THEN
+                                          'NTB'
+                                      WHEN TRUNC (t.registered_date, 'mm') <
+                                           TRUNC (a4.sym_run_date, 'mm')
+                                      THEN
+                                          'ETB'
+                                  END
+                                      Client_type,
+                                  'OTC'
+                                      AS Channel,
+                                  'Normal'
+                                      AS Acct_type,
+                                  CASE
+                                      WHEN a4.sym_run_date =
+                                           LAST_DAY (a4.sym_run_date)
+                                      THEN
+                                          SUM (a4.duno_qd)
+                                  END
+                                      EOM_Balance,
+                                  SUM (a4.duno_qd)
+                                      AS Balance_Week,
+                                  ''
+                                      EB,
+                                  t.Vikki
+                             FROM ALL_CIF_Current_month t
+                                  JOIN kmdw.hdb_sao_ke_du_no_vay_qlrr a4
+                                      ON a4.makh = t.client_no
+                            WHERE     loaikh_glcode = 'CaNhan'
+                                  AND TRUNC (a4.sym_run_date, 'mm') =
+                                      TRUNC (SYSDATE - 1, 'mm') -- thang hien tai
+                                  AND (   EXTRACT (DAY FROM a4.sym_run_date) IN
+                                              (7,
+                                               14,
+                                               21,
+                                               28)
+                                       OR a4.sym_run_date =
+                                          LAST_DAY (a4.sym_run_date)
+                                       OR a4.sym_run_date = TRUNC (SYSDATE - 1))
+                         GROUP BY a4.sym_run_date,
+                                  t.source_campaign,
+                                  'LOAN',
+                                  Cif_channel,
+                                  ca_cif,
+                                  CASE
+                                      WHEN TRUNC (t.registered_date, 'mm') >=
+                                           TRUNC (a4.sym_run_date, 'mm')
+                                      THEN
+                                          'NTB'
+                                      WHEN TRUNC (t.registered_date, 'mm') <
+                                           TRUNC (a4.sym_run_date, 'mm')
+                                      THEN
+                                          'ETB'
+                                  END,
+                                  'OTC',
+                                  'Normal',
+                                  '',
+                                  t.Vikki),
+                    Banca_fee
+                    AS
+                        (  SELECT TO_CHAR (a6.issue_date, 'mm/yyyy')
+                                      monthly,
+                                  a6.issue_date,
+                                  t.source_campaign,
+                                  'Banca'
+                                      Service,
+                                  Cif_channel,
+                                  ca_cif,
+                                  CASE
+                                      WHEN TRUNC (t.registered_date, 'mm') >=
+                                           TRUNC (a6.issue_date, 'mm')
+                                      THEN
+                                          'NTB'
+                                      WHEN TRUNC (t.registered_date, 'mm') <
+                                           TRUNC (a6.issue_date, 'mm')
+                                      THEN
+                                          'ETB'
+                                  END
+                                      Client_type,
+                                  'OTC'
+                                      AS Channel,
+                                  'Normal'
+                                      AS Acct_type,
+                                  SUM (a6.total_basic_premium)
+                                      AS banca_fee,
+                                  0
+                                      Fee_Week,
+                                  ''
+                                      EB,
+                                  t.Vikki                      ---edit 29May24
+                             FROM kmdw.c360_banca_dtl a6
+                                  JOIN ALL_CIF_Current_month t
+                                      ON a6.client_no = t.client_no
+                            WHERE     TRUNC (a6.issue_date, 'mm') =
+                                      TRUNC (SYSDATE - 1, 'mm') -- thnag hien tai
+                                  AND dtc.FN_CONVERT_TO_VN (policy_status_desc) LIKE
+                                          '%Co hieu luc%'
+                         GROUP BY a6.issue_date,
+                                  t.source_campaign,
+                                  'Banca',
+                                  Cif_channel,
+                                  ca_cif,
+                                  CASE
+                                      WHEN TRUNC (t.registered_date, 'mm') >=
+                                           TRUNC (a6.issue_date, 'mm')
+                                      THEN
+                                          'NTB'
+                                      WHEN TRUNC (t.registered_date, 'mm') <
+                                           TRUNC (a6.issue_date, 'mm')
+                                      THEN
+                                          'ETB'
+                                  END,
+                                  'OTC',
+                                  'Normal',
+                                  '',
+                                  t.Vikki),
+                    Bond
+                    AS
+                        (  SELECT TO_CHAR (d.sym_run_date, 'mm/yyyy')
+                                      monthly,
+                                  TRUNC (d.NGAY_GIAO_DICH)
+                                      AS balance_date,
+                                  source_campaign,
+                                  'Bond'
+                                      Service,
+                                  Cif_channel,
+                                  ca_cif                 --- gtri tai ngay mua
+                                        ,
+                                  CASE
+                                      WHEN TRUNC (b1.registered_date, 'mm') >=
+                                           TRUNC (d.NGAY_GIAO_DICH, 'mm')
+                                      THEN
+                                          'NTB'
+                                      WHEN TRUNC (b1.registered_date, 'mm') <
+                                           TRUNC (d.NGAY_GIAO_DICH, 'mm')
+                                      THEN
+                                          'ETB'
+                                  END
+                                      Client_type,
+                                  'OTC'
+                                      AS Channel,
+                                  'Normal'
+                                      AS Acct_type,
+                                  0
+                                      Bond_EOM,
+                                  SUM (TONG_GIA_MUA)
+                                      bond_week,
+                                  ''
+                                      EB,
+                                  b1.Vikki
+                             FROM KMDW.HDBKM_TPDN_HOPDONG_MUA_TP d --HDBKM_TPDN_OM_BAN_TRAIPHIEU d
+                                  JOIN ALL_CIF_Current_month b1
+                                      ON d.client_no = b1.client_no
+                            WHERE     TRUNC (d.NGAY_GIAO_DICH, 'mm') =
+                                      TRUNC (SYSDATE - 1, 'mm') -- thang hien tai
+                                  AND d.sym_run_date = TRUNC (SYSDATE - 1) -- lay tong cuoi moi tuan theo ngay mu TP, lay sym-1
+                         GROUP BY d.sym_run_date,
+                                  TRUNC (d.NGAY_GIAO_DICH),
+                                  source_campaign,
+                                  'Bond',
+                                  Cif_channel,
+                                  ca_cif,
+                                  CASE
+                                      WHEN TRUNC (b1.registered_date, 'mm') >=
+                                           TRUNC (d.NGAY_GIAO_DICH, 'mm')
+                                      THEN
+                                          'NTB'
+                                      WHEN TRUNC (b1.registered_date, 'mm') <
+                                           TRUNC (d.NGAY_GIAO_DICH, 'mm')
+                                      THEN
+                                          'ETB'
+                                  END,
+                                  'OTC',
+                                  'Normal',
+                                  '',
+                                  b1.Vikki)
+                ---Union all---
+                SELECT * FROM balance_ca
+                UNION ALL
+                SELECT * FROM balance_td
+                UNION ALL
+                SELECT * FROM Oustanding_card
+                UNION ALL
+                SELECT * FROM Loan_balance
+                UNION ALL
+                SELECT * FROM Banca_fee
+                UNION ALL
+                SELECT * FROM Bond);
+
+    COMMIT;
+
+    --=== Insert fee into amt table ==========16/09/2022
+    DELETE FROM TMP_FEE_CA_HIST --- Xoa thang htai. Table tmp as the end of script
+          WHERE BALANCE_DATE >= TRUNC (SYSDATE - 1, 'mm');
+
+    COMMIT;
+
+    INSERT INTO TMP_FEE_CA_HIST                             -- insert new data
+        SELECT *
+          FROM (WITH
+                    tran_fee
+                    AS
+                        (SELECT /*+ PARALLEL(8) */
+                                TRUNC (a.TRAN_DATE, 'mm')    AS TRAN_MONTH,
+                                b.client_no,
+                                CASE
+                                    WHEN a.tran_type = 'SC98'
+                                    THEN
+                                        'Anual_Fee_ATM'
+                                    WHEN a.tran_type = 'CN17'
+                                    THEN
+                                        'Transfer_International_Fee'
+                                    WHEN a.tran_type IN ('CN08',
+                                                         'CN27',
+                                                         'O07',
+                                                         'O23')
+                                    THEN
+                                        'Tranfer_out_OTC_Fee'
+                                END                          Fee_type,
+                                CASE
+                                    WHEN A.CCY = 'USD'
+                                    THEN
+                                        A.tran_amt * 23050
+                                    WHEN A.CCY = 'JPY'
+                                    THEN
+                                        A.tran_amt * 165
+                                    WHEN A.CCY = 'AUD'
+                                    THEN
+                                        A.tran_amt * 15862
+                                    ELSE
+                                        A.tran_amt
+                                END                          AS tran_amt
+                           FROM KMDW.STA_RB_TRAN_HIST  A
+                                JOIN (SELECT DISTINCT internal_key,
+                                                      acct_no,
+                                                      client_no,
+                                                      deposit_type
+                                        FROM kmdw.sta_rb_acct) B
+                                    ON A.INTERNAL_KEY = B.INTERNAL_KEY
+                          WHERE     A.SYM_RUN_DATE >=
+                                    TRUNC (SYSDATE - 1, 'mm') ---insert thang hien t?i only
+                                AND a.REVERSAL_TRAN_TYPE IS NULL --- ko bi revert
+                                AND a.tran_type IN ('SC98',
+                                                    'CN17',
+                                                    'CN08',
+                                                    'CN27',
+                                                    'O07',
+                                                    'O23')
+                                AND b.deposit_type IN ('C')
+                         UNION ALL
+                         SELECT /*+ PARALLEL(8) */
+                                TRUNC (a.TRAN_DATE, 'mm')    AS TRAN_MONTH,
+                                a.debit_client_no   --- OTC fee by charge type
+                                                 ,
+                                'Tranfer_out_OTC_Fee'        AS Fee_type,
+                                CASE
+                                    WHEN TRAN_CCY = 'USD'
+                                    THEN
+                                        TRAN_CCY_AMT * 23050
+                                    WHEN TRAN_CCY = 'JPY'
+                                    THEN
+                                        TRAN_CCY_AMT * 165
+                                    WHEN TRAN_CCY = 'AUD'
+                                    THEN
+                                        TRAN_CCY_AMT * 15862
+                                    ELSE
+                                        TRAN_CCY_AMT
+                                END                          AS tran_amt
+                           FROM kmdw.sta_ft_charges  t
+                                JOIN kmdw.ft_fund_transfer a
+                                    ON t.INTERNAL_KEY = a.INTERNAL_KEY
+                                JOIN KMDW.sta_fm_client b
+                                    ON a.debit_client_no = b.client_no
+                          WHERE     CHARGE_TYPE IN ('O07', 'O23')
+                                AND TRUNC (TRAN_DATE) >=
+                                    TRUNC (SYSDATE - 1, 'mm') ---insert thang hien t?i only
+                                AND b.client_type IN ('DIN', 'FIN'))
+                  SELECT TO_CHAR (t.tran_month, 'mm/yyyy')    AS Monthly,
+                         t.tran_month                         AS balance_date,
+                         t1.source_campaign,
+                         t.Fee_type                           AS Service,
+                         t1.Cif_channel,
+                         t1.ca_cif,
+                         CASE
+                             WHEN TRUNC (t1.registered_date, 'mm') >=
+                                  t.tran_month
+                             THEN
+                                 'NTB'
+                             WHEN TRUNC (t1.registered_date, 'mm') <
+                                  t.tran_month
+                             THEN
+                                 'ETB'
+                         END                                  Client_type,
+                         ''                                   AS Channel,
+                         ''                                   AS ACCT_TYPE,
+                         SUM (tran_amt)                       AS EOM_Balance,
+                         0                                    AS Balance_Week,
+                         ''                                   EB,
+                         t1.Vikki                              ---edit 29May24
+                    FROM ALL_CIF_Current_month t1
+                         JOIN tran_fee t ON t1.client_no = t.client_no
+                GROUP BY TO_CHAR (t.tran_month, 'mm/yyyy'),
+                         t.tran_month,
+                         t1.source_campaign,
+                         t.Fee_type,
+                         t1.Cif_channel,
+                         t1.ca_cif,
+                         CASE
+                             WHEN TRUNC (t1.registered_date, 'mm') >=
+                                  t.tran_month
+                             THEN
+                                 'NTB'
+                             WHEN TRUNC (t1.registered_date, 'mm') <
+                                  t.tran_month
+                             THEN
+                                 'ETB'
+                         END,
+                         '',
+                         t1.Vikki);
+
+    COMMIT;
+
+    ---====insert all vao bang tran_amt--===
+    INSERT INTO CIF_trans_amt
+        SELECT * FROM TMP_FEE_CA_HIST;
+
+    COMMIT;
+
+    INSERT INTO tbl_job_log (run_date, pro_name, process)
+         VALUES (SYSDATE, 'Zero fee Dashboard', '3.3 Cif_Trans_Amt');
+
+    COMMIT;
+
+    ---======================================SP tran TNX  ==================================
+    --=============4. CIF usage serparate service _Trans TNX =================08:05
+    --Execute immediate 'truncate table CIF_Seperate_service';
+    DELETE FROM CIF_Seperate_service
+          WHERE TRUNC (TRAN_DATE, 'mm') = TRUNC (SYSDATE - 1, 'mm'); -- insert thang hien tai
+
+    COMMIT;
+
+    INSERT INTO CIF_Seperate_service
+        SELECT /*+ PARALLEL(8) */
+               *
+          FROM (--NTB_separate_sevice
+                WITH
+                    trans_hist_ca_td
+                    AS
+                        (SELECT /*+ PARALLEL(8) */
+                                DISTINCT
+                                TO_CHAR (a.tran_date, 'mm/yyyy')     Monthly,
+                                a.tran_date,
+                                b.client_no,
+                                deposit_type
+                           FROM KMDW.STA_RB_TRAN_HIST  A
+                                LEFT JOIN
+                                (SELECT DISTINCT internal_key,
+                                                 acct_no,
+                                                 client_no,
+                                                 deposit_type,
+                                                 acct_type
+                                   FROM ( --select internal_key,acct_no, client_no ,deposit_type,acct_type from kmdw.sta_rb_acct@KMDW_2022
+                                         SELECT internal_key,
+                                                acct_no,
+                                                client_no,
+                                                deposit_type,
+                                                acct_type
+                                           FROM kmdw.sta_rb_acct
+                                         UNION ALL
+                                         SELECT internal_key,
+                                                acct_no,
+                                                client_no,
+                                                deposit_type,
+                                                acct_type
+                                           FROM dtc.rb_acct)) B
+                                    ON A.INTERNAL_KEY = B.INTERNAL_KEY
+                          WHERE     TRUNC (A.SYM_RUN_DATE, 'mm') =
+                                    TRUNC (SYSDATE - 1, 'mm') -- thang hien tai
+                                AND a.REVERSAL_TRAN_TYPE IS NULL --- ko bi revert
+                                AND b.deposit_type IN ('T', 'C')),
+                    CRC_used
+                    AS
+                        (SELECT DISTINCT
+                                a.crd_client_no
+                                    client_no,
+                                TO_CHAR (b.trans_date, 'mm/yyyy')
+                                    AS monthly,
+                                b.trans_date
+                                    AS tran_date,
+                                c.Source_campaign,
+                                c.Cif_channel                     --, c.CA_CIF
+                                             ,
+                                CASE
+                                    WHEN TRUNC (c.registered_date, 'mm') >=
+                                         TRUNC (b.trans_date, 'mm')
+                                    THEN
+                                        'NTB'
+                                    ELSE
+                                        'ETB'
+                                END
+                                    Client_type
+                           FROM DTC.DM_CARD_INFO  a
+                                JOIN dtc.CARD_SPEND_TRANSACTION b
+                                    ON a.crd_contr_id = b.target_contract
+                                JOIN ALL_CIF_Current_month c
+                                    ON a.crd_client_no = c.client_no
+                          WHERE     a.crd_prod_code LIKE
+                                        '%!_CR!_%' ESCAPE '!'
+                                AND TRUNC (b.trans_date, 'mm') =
+                                    TRUNC (SYSDATE - 1, 'mm') -- thang hien tai
+                                                             ),
+                    Loan_balance
+                    AS
+                        (  SELECT /*+ PARALLEL(8) */
+                                  TO_CHAR (a4.sym_run_date, 'mm/yyyy')
+                                      monthly,
+                                  a4.sym_run_date
+                                      AS tran_date,
+                                  a4.makh,
+                                  SUM (a4.duno_qd)
+                                      AS loan_balance
+                             FROM kmdw.hdb_sao_ke_du_no_vay_qlrr a4
+                            WHERE     loaikh_glcode = 'CaNhan'
+                                  AND TRUNC (a4.sym_run_date, 'mm') =
+                                      TRUNC (SYSDATE - 1, 'mm')
+                         GROUP BY a4.sym_run_date, makh),
+                    Loan_used
+                    AS
+                        (  SELECT b.monthly,
+                                  b.tran_date,
+                                  b.makh,
+                                  MIN (b.loan_balance)     AS min_loan
+                             FROM Loan_balance b
+                         GROUP BY b.monthly, b.tran_date, b.makh),
+                    banca_used
+                    AS
+                        (SELECT DISTINCT
+                                TO_CHAR (c.issue_date, 'mm/yyyy')
+                                    Monthly,
+                                c.issue_date
+                                    AS tran_date,
+                                c1.client_no,
+                                'Banca'
+                                    Service,
+                                c1.source_campaign,
+                                c1.Cif_channel                   --, c1.CA_CIF
+                                              ,
+                                CASE
+                                    WHEN TRUNC (c1.registered_date, 'mm') >=
+                                         TRUNC (c.issue_date, 'mm')
+                                    THEN
+                                        'NTB'
+                                    WHEN TRUNC (c1.registered_date, 'mm') <
+                                         TRUNC (c.issue_date, 'mm')
+                                    THEN
+                                        'ETB'
+                                END
+                                    Client_type
+                           FROM ALL_CIF_Current_month  c1
+                                JOIN KMDW.c360_banca_dtl c
+                                    ON c.client_no = c1.client_no   ---all cif
+                          WHERE     TRUNC (issue_date, 'mm') =
+                                    TRUNC (SYSDATE - 1, 'mm')
+                                AND dtc.FN_CONVERT_TO_VN (
+                                        c.policy_status_desc) LIKE
+                                        '%Co hieu luc'),
+                    Bond
+                    AS
+                        (SELECT DISTINCT
+                                TO_CHAR (d.NGAY_GIAO_DICH, 'mm/yyyy')
+                                    AS Monthly,
+                                TRUNC (d.NGAY_GIAO_DICH)
+                                    AS tran_date,
+                                d.client_no,
+                                'Bond'
+                                    AS Service,
+                                Source_campaign,
+                                b1.Cif_channel                   --, b1.CA_CIF
+                                              ,
+                                CASE
+                                    WHEN TRUNC (b1.registered_date, 'mm') >=
+                                         TRUNC (d.NGAY_GIAO_DICH, 'mm')
+                                    THEN
+                                        'NTB'
+                                    WHEN TRUNC (b1.registered_date, 'mm') <
+                                         TRUNC (d.NGAY_GIAO_DICH, 'mm')
+                                    THEN
+                                        'ETB'
+                                END
+                                    Client_type
+                           FROM KMDW.HDBKM_TPDN_HOPDONG_MUA_TP  d --HDBKM_TPDN_OM_BAN_TRAIPHIEU d
+                                JOIN ALL_CIF_Current_month b1
+                                    ON d.client_no = b1.client_no
+                          WHERE     d.sym_run_date = TRUNC (SYSDATE - 1)
+                                AND TRUNC (d.NGAY_GIAO_DICH, 'mm') =
+                                    TRUNC (SYSDATE - 1, 'mm'))
+                ----Union ---
+                SELECT Monthly,
+                       tran_date,
+                       a.client_no,
+                       CASE
+                           WHEN deposit_type = 'C' THEN 'CA'
+                           WHEN deposit_type = 'T' THEN 'TD'
+                       END    Service,
+                       a1.source_campaign,
+                       Cif_channel                                  --, ca_cif
+                                  ,
+                       CASE
+                           WHEN TRUNC (a1.registered_date, 'mm') >=
+                                TRUNC (a.tran_date, 'mm')
+                           THEN
+                               'NTB'
+                           WHEN TRUNC (a1.registered_date, 'mm') <
+                                TRUNC (a.tran_date, 'mm')
+                           THEN
+                               'ETB'
+                       END    Client_type
+                  FROM trans_hist_ca_td  a
+                       JOIN ALL_CIF_Current_month a1
+                           ON a.client_no = a1.client_no
+                UNION ALL
+                SELECT b2.monthly,
+                       b2.tran_date,
+                       b2.makh,
+                       'LOAN'    AS Service,
+                       t.Source_campaign,
+                       Cif_channel,
+                       CASE
+                           WHEN TRUNC (t.registered_date, 'mm') >=
+                                TRUNC (b2.tran_date, 'mm')
+                           THEN
+                               'NTB'
+                           WHEN TRUNC (t.registered_date, 'mm') <
+                                TRUNC (b2.tran_date, 'mm')
+                           THEN
+                               'ETB'
+                       END       Client_type
+                  FROM ALL_CIF_Current_month  t
+                       JOIN Loan_used b2
+                           ON t.client_no = b2.makh AND b2.monthly = t.month
+                 WHERE b2.min_loan > 0
+                UNION ALL
+                SELECT monthly,
+                       tran_date,
+                       client_no,
+                       'CC'     Service,
+                       source_campaign,
+                       Cif_channel,
+                       client_type
+                  FROM CRC_used
+                UNION ALL
+                SELECT Monthly,
+                       tran_date,
+                       client_no,
+                       Service,
+                       source_campaign,
+                       Cif_channel,
+                       client_type
+                  FROM banca_used
+                UNION ALL
+                SELECT Monthly,
+                       tran_date,
+                       client_no,
+                       Service,
+                       source_campaign,
+                       Cif_channel,
+                       client_type
+                  FROM Bond);
+
+    COMMIT;
+
+    INSERT INTO tbl_job_log (run_date, pro_name, process)
+         VALUES (SYSDATE, 'Zero fee Dashboard', '3.4 Cif Seperate Service');
+
+    COMMIT;
+
+    --=============SUM TNX====================
+    EXECUTE IMMEDIATE 'truncate table  All_cif_trans_Tnx';
+
+    INSERT INTO All_cif_trans_Tnx
+        (  SELECT Monthly,
+                  client_type,
+                  service,
+                  CIF_CHANNEL,
+                  MAX (tran_date)                tran_date,
+                  COUNT (DISTINCT client_no)     AS number_cust
+             FROM CIF_SEPERATE_SERVICE
+            WHERE 1 = 1 AND EXTRACT (DAY FROM tran_date) BETWEEN 1 AND 7
+         GROUP BY Monthly,
+                  client_type,
+                  service,
+                  CIF_CHANNEL)
+        UNION ALL
+        (  SELECT Monthly,
+                  client_type,
+                  service,
+                  CIF_CHANNEL,
+                  MAX (tran_date)                tran_date,
+                  COUNT (DISTINCT client_no)     AS number_cust
+             FROM CIF_SEPERATE_SERVICE
+            WHERE 1 = 1 AND EXTRACT (DAY FROM tran_date) BETWEEN 8 AND 14
+         GROUP BY Monthly,
+                  client_type,
+                  service,
+                  CIF_CHANNEL)
+        UNION ALL
+        (  SELECT Monthly,
+                  client_type,
+                  service,
+                  CIF_CHANNEL,
+                  MAX (tran_date)                tran_date,
+                  COUNT (DISTINCT client_no)     AS number_cust
+             FROM CIF_SEPERATE_SERVICE
+            WHERE 1 = 1 AND EXTRACT (DAY FROM tran_date) BETWEEN 15 AND 21
+         GROUP BY Monthly,
+                  client_type,
+                  service,
+                  CIF_CHANNEL)
+        UNION ALL
+        (  SELECT Monthly,
+                  client_type,
+                  service,
+                  CIF_CHANNEL,
+                  MAX (tran_date)                tran_date,
+                  COUNT (DISTINCT client_no)     AS number_cust
+             FROM CIF_SEPERATE_SERVICE
+            WHERE 1 = 1 AND EXTRACT (DAY FROM tran_date) BETWEEN 22 AND 28
+         GROUP BY Monthly,
+                  client_type,
+                  service,
+                  CIF_CHANNEL)
+        UNION ALL
+        (  SELECT Monthly,
+                  client_type,
+                  service,
+                  CIF_CHANNEL,
+                  MAX (tran_date)                tran_date,
+                  COUNT (DISTINCT client_no)     AS number_cust
+             FROM CIF_SEPERATE_SERVICE
+            WHERE 1 = 1 AND EXTRACT (DAY FROM tran_date) BETWEEN 29 AND 31
+         GROUP BY Monthly,
+                  client_type,
+                  service,
+                  CIF_CHANNEL);
+
+    COMMIT;
+
+    INSERT INTO tbl_job_log (run_date, pro_name, process)
+         VALUES (SYSDATE, 'Zero fee Dashboard', '3.5 Zero fee data done');
+
+    COMMIT;
+END SP_ZERO_FEE_RPT;
+
+
+TEXT
+PROCEDURE     SP_PRODUCT_PENETRATION AS 
+
+BEGIN
+
+--detail cif
+
+delete from AUM_CIF_MONTHLY
+
+where report_date >= trunc(sysdate -1,'mm');  ----edit 08Nov23
+
+/*where report_date = (select max(report_date) from AUM_CIF_MONTHLY)
+
+and report_date not in ( select distinct last_day(etl_date) from dtc.date_dim); --- delete du lieu khac ngay cuoi thang
+
+*/
+
+commit;
+
+
+
+insert /*+ append */ into AUM_CIF_MONTHLY
+
+select * from (
+
+with  base as
+
+--- edit 29Aug24 update phan hang
+
+(select distinct to_date(MONTHLY||01,'yyyymmdd') as AUM_Month, client_no, PHAN_HANG
+
+,case when PHAN_HANG  = 'Emerald' then '2.Emerald'
+
+       when PHAN_HANG  = 'Sapphire' then '3.Sapphire'
+
+        when PHAN_HANG  = 'Ruby' then '4.Ruby'
+
+         when PHAN_HANG  = 'Diamond' then '5.Diamond' 
+
+            else '1.Classic' End as segments
+
+from dtc.r3_khcn_v --DTC.KHCN_AUM edit 23Feb24
+
+where monthly in (select max(monthly) from dtc.r3_khcn_v)
+
+),
+
+Payroll as
+
+(select distinct a.client_no
+
+,'Payroll'
+
+from KMDW.sta_fm_client a
+
+join 
+
+      (select client_no, ACCT_TYPE, ACCT_OPEN_DATE
+
+      , row_number() over(partition by client_no order by ACCT_OPEN_DATE desc) rk
+
+      from KMDW.sta_rb_acct  ---kmdw.ft_rb_acct
+
+      where trunc(sym_run_date) = trunc(sysdate -1)
+
+      and acct_type in ('702','708')
+
+      and acct_status in ('A','N','D')
+
+      ) a1 on a.client_no = a1.client_no 
+
+where a1.rk=1
+
+)
+
+,Card_limit as ----Card status and Total 
+
+(select client_no, sum(case when CARD_STATUS like '%Active%' then HAN_MUC else 0 End ) as Total_Card_limit
+
+from (select distinct client_no, target_id, CARD_STATUS, HAN_MUC
+
+      from kmdw.dtc_w4_the_thongtin
+
+      where MA_LOAI_THE like '%!_CR!_%' escape '!'
+
+       and CARD_STATUS is not null
+
+      )
+
+group by client_no
+
+)
+
+,Card_Status as
+
+(select distinct client_no, target_id, CARD_STATUS, case when CARD_STATUS like '%Active%' then 'Active' Else 'De-Active' End status
+
+      from kmdw.dtc_w4_the_thongtin
+
+      where CARD_STATUS is not null
+
+      -- and client_no ='00003085'
+
+)
+
+
+
+select trunc(sysdate-1) as report_date
+
+,t.client_no
+
+, case when t1.GENDER ='F' then 'F' else 'M'  End as GENDER
+
+, t1.age
+
+, Case when extract (year from t1.age) <= 1964 then '46-64:Boomers'
+
+        when extract (year from t1.age) between 1965 and 1980 then '65-80:GenX'
+
+          when extract (year from t1.age) between 1981 and 1996 then '81-96:Millennials'
+
+           when extract (year from t1.age) >= 1997 then 'From 1997:GenZ'
+
+            Else 'Other' End Genneration
+
+, t.registered_date
+
+,to_char(t.registered_date, 'yyyy/mm') Cif_regist_Month --gop month and Year
+
+, NVL (a.segments,'1.Classic') segments
+
+, case when trunc(t.registered_date,'mm') >=  trunc(sysdate-1,'mm') then 'NTB' --- so vs thang htai
+
+        when trunc(t.registered_date,'mm') <  trunc(sysdate-1,'mm') then 'ETB'
+
+          Else 'Need_check' End cust_type
+
+, case when t.closed_date is null then 'N' Else 'Y' End CLOSED_CIF
+
+, t.ACCT_EXEC
+
+, Case when t.introducer_name like '%CIF%ONLINE' then 'ONLINE'
+
+        when b.POSITION_TYPE ='TELLER' then 'TELLER'
+
+          when b.POSITION_TYPE ='RM' then 'RM' 
+
+           Else 'Other' End Cif_channel
+
+, case when c.client_no is not null then 'Payroll'
+
+        when c.client_no is null then 'Non_Payroll'
+
+         End Payroll_type
+
+, case when vj.client_no is not null then 'VJA'
+
+        when d.client_no is not null then d.PARTNER_ID --edit 03Jan24 add 5 partner HDSS
+
+         when ntt.MA_KH is not null then 'NTTU' --edit 02Jan24
+
+          when tet.masterid is not null then '2024 Tet Camp'
+
+           else 'Other' End Source_Campaign --edit 28Dec23 change VJA
+
+, Case when sky.cif is not null then 'Yes' else 'No' End SkyJoy
+
+, login.LAST_LOGIN as LAST_LOGIN_EB
+
+, case when last_login is null then 'Never login'
+
+        when months_between(trunc(sysdate-1), last_login) > 6 then '>6M'
+
+         when months_between(trunc(sysdate-1), last_login) > 3 and months_between(trunc(sysdate-1), last_login) <=6 then '>3M – 6M'
+
+          when months_between(trunc(sysdate-1), last_login) > 1 and months_between(trunc(sysdate-1), last_login) <= 3 then '1M – 3M'
+
+           Else '<1M' end Last_Login_Date
+
+, case when st.client_no is not null then st.status else 'No_Card' End Card_status_cif
+
+, case when cr.TOTAL_CARD_LIMIT is null or cr.TOTAL_CARD_LIMIT = 0 then 'No_limit'
+
+        when cr.TOTAL_CARD_LIMIT <= 10* power(10,6) then '>0 – 10M'
+
+         when cr.TOTAL_CARD_LIMIT <= 50* power(10,6) then '>10 – 50M'
+
+          when cr.TOTAL_CARD_LIMIT <= 100* power(10,6) then '>50 – 100M'
+
+           else '> 100M – 10B' End CREDIT_CARD_LIMIT
+
+, case when tran.client_no is null then 'No_tran'
+
+        when months_between(trunc(sysdate-1), tran.last_tran_date) > 6 then '>6M'
+
+         when months_between(trunc(sysdate-1), tran.last_tran_date) > 3 and months_between(trunc(sysdate-1), tran.last_tran_date) <= 6  then '>3M – 6M'
+
+          when months_between(trunc(sysdate-1), tran.last_tran_date) > 1 and months_between(trunc(sysdate-1), tran.last_tran_date) <= 3  then '>1M – 3M'
+
+           else '<1M' End Card_Last_TXN_Date
+
+from KMDW.sta_fm_client t
+
+left join dtc.dm_demographics t1 on t.client_no = t1.client_no
+
+left join base a on t.client_no = a.client_no
+
+left join POS_POSITION b on t.ACCT_EXEC = b.ACCT_EXE
+
+left join Payroll c on t.client_no = c.client_no
+
+left join ( select distinct CLIENT_NO , PARTNER_ID
+
+            from kmdw.dtc_hdb_ekyc
+
+            where  PARTNER_ID like 'HDSS%' ---edit 03Jan24 add 5 partner HDSS
+
+            --and EKYC_ROLE <> 1
+
+            ) d on t.client_no = d.client_no
+
+left join (select distinct client_no
+
+          from DTC.VJ_ONBOARD
+
+          where userid NOT IN ('0934158728','THANHTRUC3980') ) vj on t.client_no = vj.client_no  --- Loai 2 user test
+
+---edit 02Jan24 add NTT NTB
+
+left join (select distinct MA_KH
+
+            from KMDW.DTC_MB_CTV_QUAYSO a
+
+            where a.NGAY_DANG_KY >='22Nov23' --- ngay duyet to trinh
+
+            and NGUOI_GT like 'NTT%'
+
+            ) ntt on t.client_no = ntt.MA_KH
+
+---edit 20Feb24 add Tet 2024 Campaign
+
+left join (SELECT DISTINCT MASTERID
+
+            FROM KMDW.DTC_LUCKYSPIN A
+
+            WHERE REFCODE LIKE 'HDX%'
+
+          ) tet on t.client_no = tet.masterid
+
+Left join (select distinct cif from KMDW.DTC_HDB_GJOY_REGISTER) sky on t.client_no = sky.cif
+
+left join (select CUSTOMERNUMBER AS CLIENT_NO,
+
+            CASE WHEN MAX_LOGIN_WEB IS NULL THEN MAX_LOGIN_APP
+
+                    WHEN MAX_LOGIN_APP IS NULL THEN MAX_LOGIN_WEB
+
+                    ELSE GREATEST(MAX_LOGIN_WEB, MAX_LOGIN_APP)
+
+                      END AS LAST_LOGIN
+
+            from (select CUSTOMERNUMBER, max(trunc(LAST_LOGIN_WEB)) as max_login_web, max(trunc(LAST_LOGIN_APP)) as MAX_LOGIN_APP
+
+                  from DTC.HDB_LOGIN_SUCCESS_MONTHLY a --BANG TRONG PROC LOGIN_SUCCESS_MONTHLY HIST FROM 10OCT22
+
+                  where LAST_LOGIN_APP is not null or LAST_LOGIN_WEB is not null
+
+                  group by CUSTOMERNUMBER
+
+                  )
+
+          ) login on t.client_no = login.client_no
+
+left join Card_limit cr on t.client_no = cr.client_no 
+
+left join (select client_no, status, row_number() over(partition by client_no order by status asc) rk
+
+          from Card_Status
+
+          ) st on t.client_no = st.client_no and st.rk =1
+
+left join (select /*Case when last_day(g.NGAY_GD) = last_day(trunc(sysdate -1)) then trunc(sysdate -1) else last_day(g.NGAY_GD) End as Tran_month,*/
+
+           NVL(g.CLIENT_NO,a1.client_no) as client_no, max(g.NGAY_GD) as last_tran_date
+
+          from kmdw.km_the_GIAODICH g
+
+          left join kmdw.dtc_w4_the_thongtin  a1 on g.LOC_ACCT  = a1.LOC_ACCT
+
+          where g.auth='Fin'
+
+          and g.AMOUNT_BASE > 0
+
+          --and a.client_no is null
+
+          and g.CRD_PGM is not null 
+
+          and a1.client_no <> '88888880'
+
+          group by NVL(g.CLIENT_NO,a1.client_no)
+
+          ) tran on t.client_no = tran.client_no
+
+where t.CLIENT_TYPE in ('DIN','FIN') ---- KHCN
+
+and t.CLIENT_NAME not like '%HDB%' 
+
+and t.registered_date is not null and trunc (t.registered_date,'mm') <= trunc(sysdate-1,'mm') --- CIF truoc thang AUM
+
+--and t.client_no in ('03043046','03764613','02595245')
+
+);
+
+
+
+commit;
+
+
+
+insert into tbl_job_log(run_date,pro_name,process)
+
+    values (sysdate,'Pene Dashboard','3.0 AUM CIF MONTHLY');
+
+
+
+Commit;
+
+
+
+----============Table penetration-===============================================
+
+------===========xoa du lieu hom trc-============
+
+delete  from cust_product_penetration
+
+where report_date  >= trunc(sysdate -1,'mm');  ----edit 08Nov23
+
+Commit;
+
+---====== insert data t-1---============== 
+
+insert into cust_product_penetration
+
+select * from (
+
+with CRC as
+
+(select  distinct t.crd_client_no as client_no
+
+, 'CC' cust_group
+
+, case when dop.cif is not null then 'ONLINE' Else 'OTC' End Product_Source  --- edit 07Jul23
+
+from DTC.DM_CARD_INFO t 
+
+join AUM_CIF_MONTHLY a on t.crd_client_no = a.client_no
+
+left join (select distinct cif 
+
+            from dtc.dm_lead_management_bk ---edit 07Dec23 replace table backup to run job earlier
+
+            where status_id like 'I%'
+
+            and FN_CONVERT_TO_VN (STATUS_DESC) like '%thanh cong%'
+
+            ) dop on t.crd_client_no = dop.cif
+
+where t.crd_prod_code like '%!_CR!_%' escape '!'
+
+and t.crd_status_name not in ('Cancelled','Closed')
+
+and a.report_date = trunc(sysdate -1)
+
+),
+
+DB as
+
+(select  distinct t.crd_client_no as client_no
+
+, 'CC' cust_group
+
+from DTC.DM_CARD_INFO t 
+
+join AUM_CIF_MONTHLY a on t.crd_client_no = a.client_no
+
+where t.crd_prod_code like '%!_DB!_%' escape '!'
+
+and t.crd_status_name not in ('Cancelled','Closed')
+
+and a.report_date = trunc(sysdate -1)
+
+),
+
+CA as
+
+(Select  distinct a.client_no
+
+, 'CA' cust_group
+
+,Case when acct.client_no is not null then 'ONLINE' Else 'OTC' End Product_Source
+
+from AUM_CIF_MONTHLY a
+
+join 
+
+    (select distinct n.client_no 
+
+    from kmdw.ft_rb_acct n
+
+    where n.sym_run_date = trunc(sysdate -1) and n.deposit_type in('C','S') and n.acct_status  in ('A','N','D')
+
+    )m on a.client_no = m.client_no
+
+left join (select distinct n.client_no 
+
+            from kmdw.ft_rb_acct n
+
+            where n.sym_run_date = trunc(sysdate -1) and acct_type = '7OL'and n.deposit_type in('C','S') and n.acct_status  in ('A','N','D')
+
+            ) acct on a.client_no = acct.client_no
+
+where a.report_date = trunc(sysdate -1)
+
+),
+
+TD as
+
+(Select  distinct a.client_no
+
+, 'TD' cust_group
+
+, case when m2.client_no is not null then 'ONLINE' Else 'OTC' End Product_Source --edit 07Jul23 
+
+from AUM_CIF_MONTHLY a
+
+join 
+
+    (select distinct n.client_no 
+
+    from kmdw.ft_rb_acct n
+
+    where n.sym_run_date = trunc(sysdate -1) and n.deposit_type in('T') and n.acct_status  in ('A')
+
+    )m on a.client_no = m.client_no
+
+left join (select distinct client_no 
+
+            from kmdw.ft_rb_acct t
+
+            where t.sym_run_date = trunc(sysdate -1) and t.deposit_type in ('T') and t.acct_status  in ('A')
+
+            and ( (ACCT_OPEN_DATE < '28-Feb-2023' and t.acct_type in ('ON0', 'ONG') )  OR (ACCT_OPEN_DATE >= '28-Feb-2023' and t.acct_type like 'ON%') )
+
+            ) m2 on a.client_no = m2.client_no
+
+where a.report_date = trunc(sysdate -1)
+
+),
+
+Loan as
+
+(select  distinct a.client_no
+
+, 'Loan' cust_group
+
+, case when a3.makh is not null then 'ONLINE' Else 'OTC' End Product_Source
+
+from AUM_CIF_MONTHLY a
+
+join (select distinct makh from kmdw.hdb_sao_ke_du_no_vay_qlrr
+
+       where sym_run_date = trunc(sysdate -1) and DUNO_QD > 0 and LOAIKH in ('DIN','FIN') 
+
+      )a2 on a.client_no =a2.makh
+
+left join (select distinct makh from kmdw.hdb_sao_ke_du_no_vay_qlrr
+
+           where sym_run_date = trunc(sysdate -1) and DUNO_QD > 0 and LOAIKH in ('DIN','FIN')
+
+           and MA_SP = '341'  ---- cam co STK ONLINE 
+
+           )a3 on a.client_no =a3.makh
+
+where a.report_date = trunc(sysdate -1)
+
+),
+
+Banca as
+
+(select distinct a.client_no
+
+, 'Banca' cust_group
+
+, case when b3.client_no is not null then 'ONLINE' Else 'OTC' End Product_Source
+
+from AUM_CIF_MONTHLY a
+
+join (select distinct client_no from KMDW.c360_banca_dtl 
+
+        where FN_CONVERT_TO_VN (policy_status_desc) like '%Co hieu luc' -- function convert TV
+
+        and trunc(issue_date) <= trunc(sysdate -1)
+
+      )a3 on a.client_no = a3.client_no
+
+left join (SELECT distinct b.client_no
+
+            FROM KMDW.MB_TRANSACTION a
+
+            left join sta_rb_acct B on a.FROM_ACC = B.ACCT_NO
+
+            WHERE TRANX_TYPE = '1006'
+
+            ) b3 on a.client_no = b3.client_no 
+
+where a.report_date = trunc(sysdate -1)
+
+),
+
+Bond as
+
+(select distinct a.client_no
+
+, 'Bond' cust_group
+
+from AUM_CIF_MONTHLY a
+
+join (select distinct(client_no)
+
+        from KMDW.HDBKM_TPDN_HOPDONG_MUA_TP
+
+        where trunc(sym_run_date) = trunc(sysdate -1)
+
+        and trunc(NGAY_GIAO_DICH) <= trunc(sysdate -1) ---- HDBKM_TPDN_OM_BAN_TRAIPHIEU (lay Kh bond tu trc den hien tai con active)
+
+        and NGAY_TATTOAN is null  --- TP con active, chua tat toan
+
+      ) a4 on a.client_no = a4.client_no
+
+where a.report_date = trunc(sysdate -1)
+
+),
+
+EB as ----edit 30oct23 adjust EB
+
+(select distinct a.client_no
+
+, 'EB' cust_group
+
+from AUM_CIF_MONTHLY a
+
+join All_EB_Tracking a5 on a.client_no = a5.client_no  ---- All_EB_Tracking in Zero fee tracking rpt
+
+left join (select distinct CLIENT_NO
+
+          from kmdw.dtc_hdb_ekyc 
+
+          where  PARTNER_ID like 'HDSS%' ---edit 03Jan24 5 partner HDSS
+
+          and KSS_RUN = '6'
+
+          ) hs on a.client_no = hs.client_no
+
+where trunc(EB_REGISTERED_DATE) <= trunc(sysdate -1)
+
+and a.report_date = trunc(sysdate -1)
+
+and hs.client_no is null
+
+),
+
+Card_type as
+
+(select distinct crd_client_no as client_no
+
+, Case when substr(CRD_CONTR_NUMBER,1,6) LIKE '970437' then 'NAPAS' 
+
+        when CRD_PROD_CODE like 'VS%' then 'VISA'
+
+          when CRD_PROD_CODE  LIKE 'MC%' then 'MC'
+
+           Else 'Others' End Card_type 
+
+from DTC.DM_CARD_INFO
+
+where crd_status_name not in ('Cancelled','Closed')
+
+),
+
+type_pivot as
+
+(select client_no, type_1, type_2, type_3, type_4
+
+from 
+
+(select client_no,Card_type from card_type)
+
+pivot
+
+(max(Card_type) for Card_type in ('NAPAS' as type_1, 'MC' as type_2, 'VISA' as type_3, 'Others' as type_4)) 
+
+),
+
+Eb_6m as
+
+(select  client_no
+
+ ,'Last_6m'  last_6m
+
+, sum(sl_tnx) sl_tnx
+
+from EB_ACTIVE_TRANS
+
+where tnx_date >= add_months (trunc(sysdate), -6) ---6 thang tu ngay hien tai
+
+group by client_no
+
+),
+
+ Eb_3m as
+
+(select  client_no
+
+ ,'Last_3m'  last_3m
+
+, sum(sl_tnx) sl_tnx
+
+from EB_ACTIVE_TRANS
+
+where tnx_date >= add_months (trunc(sysdate), -3)
+
+group by client_no
+
+),
+
+Eb_1m as
+
+(select  client_no
+
+ ,'Last_1m'  last_1m
+
+, sum(sl_tnx) sl_tnx
+
+from EB_ACTIVE_TRANS
+
+where tnx_date >= add_months (trunc(sysdate), -1)
+
+group by client_no
+
+),
+
+Eb_trans as
+
+(select distinct t.client_no
+
+,Case when t1.client_no is not null and NVL(t1.SL_TNX,0) = 0 then '0'
+
+       when t1.client_no is not null and NVL(t1.SL_TNX,0) between 1 and 10 then '1-10'
+
+        when t1.client_no is not null and NVL(t1.SL_TNX,0) between 11 and 20 then '11-20'
+
+         when t1.client_no is not null and NVL(t1.SL_TNX,0) >20 then '21+'
+
+          Else '0' End EBtran_6m
+
+,Case when t2.client_no is not null and NVL(t2.SL_TNX,0) = 0 then '0'
+
+       when t2.client_no is not null and  NVL(t2.SL_TNX,0) between 1 and 10 then '1-10'
+
+        when t2.client_no is not null and  NVL(t2.SL_TNX,0) between 11 and 20 then '11-20'
+
+         when t2.client_no is not null and NVL(t2.SL_TNX,0) >20 then '21+'
+
+          Else '0' End EBtran_3m
+
+,Case when t3.client_no is not null and NVL(t3.SL_TNX,0) = 0 then '0'
+
+       when t3.client_no is not null and NVL(t3.SL_TNX,0) between 1 and 10 then '1-10'
+
+        when t3.client_no is not null and NVL(t3.SL_TNX,0) between 11 and 20 then '11-20'
+
+         when t3.client_no is not null and NVL(t3.SL_TNX,0) >20 then '21+'
+
+          Else '0' End EBtran_1m
+
+from EB_ACTIVE_TRANS t
+
+left join Eb_6m t1 on t.client_no = t1.client_no
+
+left join Eb_3m t2 on t.client_no = t2.client_no
+
+left join Eb_1m t3 on t.client_no = t3.client_no
+
+)
+
+select t.REPORT_DATE, t.CLIENT_NO 
+
+, case when a1.client_no is not null then 1 else 0 End CA
+
+,case when a2.client_no is not null then 1 else 0 End TD
+
+,case when a3.client_no is not null then 1 else 0 End CC
+
+,case when a4.client_no is not null then 1 else 0 End DB
+
+,case when a5.client_no is not null then 1 else 0 End Loan
+
+,case when a6.client_no is not null then 1 else 0 End Banca
+
+,case when a7.client_no is not null then 1 else 0 End Bond
+
+,case when a8.client_no is not null then 1 else 0 End EB
+
+, case when t.SKYJOY ='Yes' then 1 else 0 End as SKYJOY
+
+, CASE when (a1.client_no is not null or a2.client_no is not null or a3.client_no is not null or a4.client_no is not null
+
+            or a5.client_no is not null or a6.client_no is not null or a7.client_no is not null or a8.client_no is not null ) then 'Y' Else 'N' End as Active_product
+
+,Case when a9.client_no is not null and type_1 ='NAPAS' then 1 else 0 End Card_NAPAS
+
+,Case when a9.client_no is not null and type_2 ='MC' then 1 else 0 End Card_MC
+
+,Case when a9.client_no is not null and type_3 ='VISA' then 1 else 0 End Card_VISA
+
+,Case when a9.client_no is not null and type_4 ='Others' then 1 else 0 End Card_Others
+
+, nvl(a10. EBtran_1m,0) EBtran_1m , nvl(a10. EBtran_3m,0) EBtran_3m ,  nvl(a10.EBtran_6m,0) EBtran_6m 
+
+, case when s3_3m.client_no is not null  then 1 else 0 end as s3_3m_active
+
+, case when onboard.client_no is not null   then 1 else 0 end as s3_onboard
+
+, case when s3_ntb.client_no is not null   then 1 else 0 end as s3_ntb
+
+,case when evn.client_no is not null   then 1 else 0 end as evn_bill
+
+, t.Source_Campaign
+
+, case when (a1.Product_Source ='ONLINE' or a2.Product_Source ='ONLINE' or a3.Product_Source ='ONLINE' or a5.Product_Source ='ONLINE'
+
+                or a6.Product_Source ='ONLINE' ) then 'ONLINE' ELSE 'OTC' End Product_Source
+
+from  DTC.AUM_CIF_MONTHLY t
+
+ left join CA a1 on t.client_no = a1.client_no
+
+ left join TD a2 on t.client_no = a2.client_no
+
+ left join CRC a3 on t.client_no = a3.client_no
+
+ left join DB a4 on t.client_no = a4.client_no
+
+ left join Loan a5 on t.client_no = a5.client_no
+
+ left join Banca a6 on t.client_no = a6.client_no
+
+ left join Bond a7 on t.client_no = a7.client_no
+
+ left join EB a8 on t.client_no = a8.client_no
+
+ left join type_pivot a9 on  t.client_no = a9.client_no
+
+ left join Eb_trans a10 on t.client_no = a10.client_no
+
+ left join (SELECT distinct client_no
+
+          FROM dtc.s3_pbi_dtl
+
+          WHERE sym_run_date = TRUNC(SYSDATE-1) 
+
+          and ACTIVE_3_MONTH_BEFORE=1
+
+          ) s3_3m on s3_3m.client_no  = t.client_no
+
+left join (SELECT distinct client_no
+
+          FROM dtc.s3_pbi_dtl
+
+          WHERE sym_run_date = TRUNC(SYSDATE-1)
+
+          and ACTIVE_3_MONTH_BEFORE=1 and CUST_STATUS='New Payroll'
+
+          ) s3_ntb on s3_ntb.client_no  = t.client_no
+
+left join (SELECT distinct PAYEECIF as client_no
+
+          FROM dtc.di_payroll_detail WHERE CREATIONMONTH = last_day(TRUNC(SYSDATE-1))
+
+          ) onboard on onboard.client_no  = t.client_no
+
+left join (select client_no from dtc.bill_evn_base where report_date = trunc(sysdate-1)) evn  on evn.client_no  = t.client_no
+
+ where t.report_date = trunc(sysdate -1)
+
+ );
+
+ 
+
+ commit;
+
+ 
+
+  insert into tbl_job_log(run_date,pro_name,process)
+
+    values (sysdate,'Pene Dashboard','3.1 Cust_Product_pene');
+
+
+
+Commit;
+
+ 
+
+--=============BALANCE-==========Update 29Jun23 add TD online OTC
+
+ delete from CUST_AUM_DEPOSIT_BALANCE
+
+where BALANCE_DATE  >= trunc(sysdate -1,'mm');  ----edit 08Nov23
+
+
+
+commit;
+
+
+
+insert into CUST_AUM_DEPOSIT_BALANCE 
+
+select * from 
+
+(
+
+with balance_ca as 
+
+(select trunc(t.sym_run_date) as balance_date, t1.client_no, 'CASA' service
+
+, '' as Channel
+
+, sum(t.SODU_QD)  Balance
+
+from AUM_CIF_MONTHLY t1
+
+join KMDW.HDBKM_HUYDONG_TONGHOP t on t.client_no = t1.client_no
+
+where t.LOAI_KHACHHANG ='CN'
+
+and t.sym_run_date = trunc(sysdate -1) -- insert current
+
+and PERIOD is null
+
+and t1.report_date = t.sym_run_date
+
+group by t.sym_run_date,t1.client_no,'CASA', ''
+
+),
+
+balance_td as 
+
+(select trunc(t.sym_run_date) as balance_date, t1.client_no, 'TD' as Service
+
+, case when sym_run_date < '28-Feb-2023' and t.acct_type in ('ON0', 'ONG')  then 'Online'
+
+        when sym_run_date >= '28-Feb-2023' and t.acct_type like 'ON%' then 'Online' Else 'OTC' End as Channel --t.acct_type in ('ON0', 'ONG')
+
+,sum(t.SODU_QD) as Balance
+
+from AUM_CIF_MONTHLY t1 -- ALL_CIF_Current_month t1 
+
+join KMDW.HDBKM_HUYDONG_TONGHOP t on t.client_no = t1.client_no 
+
+where t.LOAI_KHACHHANG ='CN'
+
+and t.sym_run_date = trunc(sysdate -1) -- insert current
+
+and PERIOD is NOT null
+
+and t1.REPORT_DATE = t.sym_run_date
+
+group by trunc(t.sym_run_date), t1.client_no, 'TD'
+
+, case when sym_run_date < '28-Feb-2023' and t.acct_type in ('ON0', 'ONG')  then 'Online'
+
+        when sym_run_date >= '28-Feb-2023' and t.acct_type like 'ON%' then 'Online' Else 'OTC' End
+
+),
+
+pivot_td as
+
+(select balance_date, client_no, TD_Onl_Bal, TD_OTC_Bal
+
+from 
+
+(select balance_date, client_no, CHANNEL, BALANCE
+
+from balance_td 
+
+)
+
+pivot
+
+(sum(balance)
+
+for channel in ('Online' as TD_Onl_Bal, 'OTC' as TD_OTC_Bal)
+
+)
+
+)
+
+select cust.report_date as BALANCE_DATE, cust.client_no
+
+, sum(nvl(ca.balance,0) ) as CASA
+
+, ( sum(nvl(td.TD_Onl_Bal,0)) + sum(nvl (td.TD_OTC_Bal,0)) ) as TD_Total
+
+, sum(nvl(td.TD_Onl_Bal,0) ) as TD_Onl
+
+, sum(nvl(td.TD_OTC_Bal,0) ) as TD_OTC
+
+from AUM_CIF_MONTHLY cust
+
+left join balance_ca ca on cust.client_no = ca.client_no and cust.report_date = ca.Balance_date
+
+left join pivot_td td on cust.client_no = td.client_no and cust.report_date = td.Balance_date
+
+where 1=1
+
+and cust.report_date = trunc(sysdate -1) --- CIF current month
+
+and (ca.client_no is not null OR td.client_no is not null)
+
+group by cust.report_date, cust.client_no
+
+) ;
+
+commit;
+
+
+
+insert into tbl_job_log(run_date,pro_name,process)
+
+    values (sysdate,'Pene Dashboard','3.2 Pene deposit balance');
+
+
+
+Commit;
+
+
+
+----===========Table sum on PIB--=========================
+
+ delete from  CIF_AUM_PRODUCT_PENE
+
+where REPORT_DATE  >= trunc(sysdate -1,'mm');  ----edit 08Nov23
+
+commit;
+
+
+
+Insert into CIF_AUM_PRODUCT_PENE
+
+select * from (
+
+select t.REPORT_DATE, t.GENDER, t.GENNERATION, t.CIF_REGIST_MONTH, t.SEGMENTS, t.CUST_TYPE
+
+, t.CLOSED_CIF, t.CIF_CHANNEL, t.PAYROLL_TYPE
+
+,CA, TD, CC, DB, LOAN, BANCA, BOND, EB, a.SKYJOY
+
+, ACTIVE_PRODUCT, CARD_NAPAS, CARD_MC, CARD_VISA, CARD_OTHERS, EBTRAN_1M, EBTRAN_3M, EBTRAN_6M
+
+,s3_3m_active,s3_ntb,s3_onboard,a.evn_bill
+
+,case when a1.CASA is null or a1.CASA = 0 then '1. Empty'
+
+      when a1.CASA <=10000000 then '2.>0 - 10M'
+
+      when a1.CASA <= 100000000 then '3.>10M - 100M'
+
+      when a1.CASA <= 1000000000 then '4.>100M - 1B'
+
+      else '5.>1B' end as CASA_RANGE
+
+, t.Source_Campaign
+
+, a.Product_Source
+
+  , t.LAST_LOGIN_DATE, t.CARD_STATUS_CIF, t.CREDIT_CARD_LIMIT, t.CARD_LAST_TXN_DATE
+
+, case when bil.client_no is not null then 1 Else 0 End Bill_Payment_cust
+
+, case when a.ca=0 and a.td=0 and a.cc=0 and a.db=0 and a.loan=0 and a.banca=0 and a.bond=0 then 'Yes' else 'No' End Cif_EB_NoProduct
+
+, count(distinct t.client_no) as number_cust
+
+, sum(a1.CASA) as CASA, sum(a1.TD_Total) as TD_Bal, sum(a1.TD_Onl) as TD_Onl,  sum(TD_OTC) as TD_OTC
+
+, sum(case when bil.client_no is not null then bil.SL End) as BILL_PAYMENT_CNT
+
+, sum(case when bil.client_no is not null then bil.AMOUNT End) as BILL_PAYMENT_AMT
+
+from DTC.AUM_CIF_MONTHLY t
+
+left join  DTC.cust_product_penetration a on t.client_no = a.client_no --- select * from cust_product_penetration
+
+left join DTC.CUST_AUM_DEPOSIT_BALANCE a1 on t.client_no = a1.client_no and a1.balance_date = trunc(sysdate -1) -- Balance T-1
+
+left join (select SYM_RUN_DATE,client_no, sum(SL) as SL, sum(Amount) as AMOUNT
+
+          from dtc.bill_payment
+
+          group by SYM_RUN_DATE,client_no
+
+          ) bil on t.client_no = bil.client_no and last_day(t.report_date) = bil.sym_run_date
+
+where t.report_date = trunc(sysdate -1)
+
+and a.report_date = trunc(sysdate -1)
+
+group by t.REPORT_DATE, t.GENDER, t.GENNERATION, t.CIF_REGIST_MONTH, t.SEGMENTS, t.CUST_TYPE, 
+
+t.CLOSED_CIF, t.CIF_CHANNEL, t.PAYROLL_TYPE
+
+,CA, TD, CC, DB, LOAN, BANCA, BOND, EB, a.SKYJOY
+
+, ACTIVE_PRODUCT, CARD_NAPAS, CARD_MC, CARD_VISA, CARD_OTHERS, EBTRAN_1M, EBTRAN_3M, EBTRAN_6M
+
+,s3_3m_active,s3_ntb,s3_onboard, a.evn_bill
+
+,case when a1.CASA is null or a1.CASA = 0 then '1. Empty'
+
+      when a1.CASA <=10000000 then '2.>0 - 10M'
+
+      when a1.CASA <= 100000000 then '3.>10M - 100M'
+
+      when a1.CASA <= 1000000000 then '4.>100M - 1B'
+
+      else '5.>1B' end
+
+, t.Source_Campaign
+
+, a.Product_Source
+
+, t.LAST_LOGIN_DATE, t.CARD_STATUS_CIF, t.CREDIT_CARD_LIMIT, t.CARD_LAST_TXN_DATE
+
+, case when bil.client_no is not null then 1 Else 0 End
+
+, case when a.ca=0 and a.td=0 and a.cc=0 and a.db=0 and a.loan=0 and a.banca=0 and a.bond=0 then 'Yes' else 'No' End
+
+);
+
+
+
+commit;
+
+
+
+/*update CIF_AUM_PRODUCT_PENE
+
+set CIF_REGIST_YEAR = to_char(extract (year from sysdate -1 ))
+
+where (CIF_REGIST_YEAR not like '18%' and CIF_REGIST_YEAR not like '19%' and  CIF_REGIST_YEAR not like '2%');
+
+
+
+commit;
+
+*/
+
+
+
+insert into tbl_job_log(run_date,pro_name,process)
+
+    values (sysdate,'Pene Dashboard','3.3 Pene data done');
+
+
+
+Commit;
+
+
+
+END SP_PRODUCT_PENETRATION;
