@@ -1,0 +1,41 @@
+1. Thông tin Định nghĩa Chỉ số (DG_INDICATOR_DEFINITION)
+Đây là thông tin tổng quan về chỉ số bạn muốn định nghĩa.
+
+INDICATOR_ID (BẮT BUỘC): Mã định danh duy nhất cho chỉ số này (ví dụ: AVG_CASA_ACCT, NPL_RATIO).
+INDICATOR_NAME (BẮT BUỘC): Tên đầy đủ, dễ hiểu của chỉ số (ví dụ: Tỷ lệ CASA trung bình trên mỗi tài khoản).
+DESCRIPTION (BẮT BUỘNG): Mô tả ngắn gọn về ý nghĩa hoặc mục đích của chỉ số.
+FORMULA_TEXT (BẮT BUỘC): Công thức tính toán chỉ số bằng ngôn ngữ tự nhiên, dễ đọc (ví dụ: Tổng số dư CASA / Tổng số tài khoản).
+FORMULA_EXPRESSION (BẮT BUỘC): Biểu thức tính toán chỉ số sử dụng các COMPONENT_ID đã định nghĩa (ví dụ: TOTAL_CASA_BALANCE / TOTAL_ACCOUNTS).
+STATUS (Mặc định: ACTIVE): Trạng thái của chỉ số (ACTIVE hoặc INACTIVE).
+REPORT_NAME (TÙY CHỌN): Tên của báo cáo hoặc dashboard mà chỉ số này sẽ xuất hiện.
+
+2. Thông tin Cấu phần Chỉ số (DG_INDICATOR_COMPONENTS)
+Phần này mô tả chi tiết từng thành phần nhỏ nhất tạo nên chỉ số, bao gồm cả các thành phần trung gian và các trường dữ liệu gốc. Vui lòng liệt kê từng cấu phần dưới dạng một mục riêng biệt.
+
+Đối với MỖI cấu phần, cung cấp các thông tin sau:
+
+COMPONENT_ID (BẮT BUỘC): Mã định danh duy nhất cho cấu phần này (ví dụ: TOTAL_CASA_BALANCE, BALANCE_WEEK).
+INDICATOR_ID (BẮT BUỘC): Mã của chỉ số chính hoặc COMPONENT_ID của cấu phần cha mà cấu phần này thuộc về.
+COMPONENT_NAME (BẮT BUỘC): Tên mô tả của cấu phần.
+COMPONENT_DEFINITION (BẮT BUỘC): Định nghĩa rõ ràng về cấu phần này. Mô tả ý nghĩa, mục đích hoặc bản chất của cấu phần trong ngữ cảnh nghiệp vụ. (Ví dụ: Tổng số dư tiền gửi không kỳ hạn của khách hàng, Số ngày quá hạn của khoản vay).
+CATEGORY (BẮT BUỘC): Danh mục chính mà cấu phần này thuộc về, dựa trên danh sách bạn đã cung cấp (ví dụ: Khách hàng, Huy động, Tín dụng, Quản trị rủi ro, v.v.).
+SUB_CATEGORY (TÙY CHỌN): Danh mục con cụ thể hơn mà cấu phần này thuộc về, nếu có (ví dụ: Khoản vay tín chấp, Kiều hối). Nếu không có sub-category phù hợp, có thể để trống hoặc ghi N/A.
+CALCULATION_RULE (BẮT BUỘC):
+Đây là phần quan trọng nhất để mô tả logic.
+Nếu cấu phần là một giá trị tính toán (ví dụ: tổng, trung bình, kết quả của một phép SWITCH trong DAX), hãy cung cấp công thức DAX hoặc logic SQL chi tiết để tạo ra giá trị này.
+Nếu cấu phần là một trường dữ liệu gốc, hãy mô tả cách nó được sử dụng hoặc ý nghĩa của trường đó.
+Ví dụ: SUM(BALANCE_WEEK) WHERE SERVICE = 'CA' AND ACCT_TYPE = 'Zero fee' hoặc "Y" nếu quá hạn > 90 ngày + các quy tắc đánh giá bổ sung.
+SOURCE_FIELD (TÙY CHỌN): Tên trường dữ liệu gốc trong cơ sở dữ liệu SQL mà cấu phần này được lấy trực tiếp từ đó. ưu tiên lấy trường dữ liệu gốc. Luôn luôn upper giá trị input vào.
+SOURCE_TABLE (TÙY CHỌN): Tên bảng dữ liệu gốc trong cơ sở dữ liệu SQL mà SOURCE_FIELD thuộc về. ưu tiên lấy trường dữ liệu gốc. Lưu ý một số field không gắn alias cụ thể từ bảng nào, hãy điền "Please verify the table bc of lacking alias". Luôn luôn upper giá trị input vào.
+SOURCE_SCHEMA (TÙY CHỌN): Tên schema của bảng dữ liệu gốc trong cơ sở dữ liệu SQL. ưu tiên lấy trường dữ liệu gốc. Nếu có thông tin schema thì điền, nếu bảng ko có thông tin schema thì điền "DTC". Luôn luôn upper giá trị input vào.
+
+3. Thông tin Mối quan hệ Phụ thuộc (DG_INDICATOR_DEPENDENCIES)
+Phần này mô tả mối quan hệ cha-con giữa các COMPONENT_ID để xây dựng cây phụ thuộc (lineage tree).
+
+Đối với MỖI mối quan hệ phụ thuộc, cung cấp các thông tin sau:
+
+INDICATOR_ID (BẮT BUỘC): Mã chỉ số chính mà các cấu phần này thuộc về (ví dụ: NPL_RATIO).
+COMPONENT_ID (BẮT BUỘC): Mã định danh của cấu phần "cha" (cấu phần phụ thuộc vào cấu phần khác).
+DEPENDS_ON (BẮT BUỘC): Mã định danh của cấu phần "con" (cấu phần mà cấu phần "cha" phụ thuộc vào).
+DEPENDENCY_TYPE (Mặc định: COMPONENT): Luôn là COMPONENT trong trường hợp này.
+
