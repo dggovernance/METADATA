@@ -1,0 +1,521 @@
+nameMeasure,expressionMeasure,table_name_in_DAX,column_name_in_DAX,exist_measure
+No of NTB,"
+// sum (ALL_CIF[NUMBER_CUST])
+ sum (ALL_CIF[NUMBER_CUST])  - [No of NTB closed]",ALL_CIF,NUMBER_CUST,No of NTB closed
+HDss cust,"CALCULATE([No of NTB], ALL_CIF[SOURCE_CAMPAIGN] =""HDSaiSon"")",ALL_CIF,SOURCE_CAMPAIGN,No of NTB
+VJet cust,"CALCULATE([No of NTB], ALL_CIF[SOURCE_CAMPAIGN] =""VJA"")",ALL_CIF,SOURCE_CAMPAIGN,No of NTB
+Remitt cust,"CALCULATE([No of NTB], ALL_CIF[SOURCE_CAMPAIGN] =""Remittances"")",ALL_CIF,SOURCE_CAMPAIGN,No of NTB
+Other cust,"CALCULATE([No of NTB], ALL_CIF[SOURCE_CAMPAIGN]  =""Other"")",ALL_CIF,SOURCE_CAMPAIGN,No of NTB
+NTB YTD,"TOTALYTD( sum(ALL_CIF[NUMBER_CUST]) - [No of NTB closed],  Dim_Date[Date] )",ALL_CIF,NUMBER_CUST,No of NTB closed
+NTB YTD,"TOTALYTD( sum(ALL_CIF[NUMBER_CUST]) - [No of NTB closed],  Dim_Date[Date] )",Dim_Date,Date,No of NTB closed
+NTB by Service,"
+ sum(NTB_SEVICE[NUM_CUST] )",NTB_SEVICE,NUM_CUST,
+Same period last month,"CALCULATE( [No of NTB], DATEADD(Dim_Date[Date], -1, month) )",Dim_Date,Date,No of NTB
+Same last 2 month,"CALCULATE( [No of NTB] , DATEADD( Dim_Date[Date], -2, month ) )",Dim_Date,Date,No of NTB
+NTB YTD SPLM,"
+ var _max_date = LASTNONBLANK(Dim_Date[Date],[No of NTB] )
+    return 
+     CALCULATE( [NTB YTD], DATEADD( FILTER( DATESMTD(Dim_Date[Date] ), Dim_Date[Date]<= _max_date ), -1, MONTH ))",Dim_Date,Date,No of NTB
+NTB MTD,"TOTALMTD([No of NTB], Dim_Date[Date])",Dim_Date,Date,No of NTB
+NTB ytd vs LW,"TOTALYTD([No of NTB] , DATEADD(Dim_Date[Date], -7, DAY) )",Dim_Date,Date,No of NTB
+# Account,"
+var _service = SELECTEDVALUE(NTB_SEVICE[SERVICE] )
+return 
+SWITCH(true(),
+ 1=1, CALCULATE( [NTB by Service], NTB_SEVICE[SERVICE] = _service),  [NTB by Service])",NTB_SEVICE,SERVICE,NTB by Service
+#Acct LM,"
+Var _service = SELECTEDVALUE(NTB_SEVICE[SERVICE] )
+Return
+SWITCH(true(), 
+   1=1, CALCULATE( [# Account], DATEADD( Dim_Date[Date] , -1 , MONTH ), NTB_SEVICE[SERVICE] = _service), [# Account]
+        )",NTB_SEVICE,SERVICE,# Account
+#Acct LM,"
+Var _service = SELECTEDVALUE(NTB_SEVICE[SERVICE] )
+Return
+SWITCH(true(), 
+   1=1, CALCULATE( [# Account], DATEADD( Dim_Date[Date] , -1 , MONTH ), NTB_SEVICE[SERVICE] = _service), [# Account]
+        )",Dim_Date,Date,# Account
+#Acct L2M,"
+Var _service = SELECTEDVALUE(NTB_SEVICE[SERVICE] )
+Return
+SWITCH(true(), 
+   1=1, CALCULATE( [# Account], DATEADD( Dim_Date[Date] , -2 , MONTH ), NTB_SEVICE[SERVICE] = _service), [# Account]
+        )",NTB_SEVICE,SERVICE,# Account
+#Acct L2M,"
+Var _service = SELECTEDVALUE(NTB_SEVICE[SERVICE] )
+Return
+SWITCH(true(), 
+   1=1, CALCULATE( [# Account], DATEADD( Dim_Date[Date] , -2 , MONTH ), NTB_SEVICE[SERVICE] = _service), [# Account]
+        )",Dim_Date,Date,# Account
+Amt service,"
+Var _Service = SELECTEDVALUE( CIF_TRANS_AMT[SERVICE])
+var _Sum_bal = sum(CIF_TRANS_AMT[BALANCE_WEEK] )
+Var _Max = LASTNONBLANK( Dim_Date[Date], [No of cust by type] )
+return 
+SWITCH(true(),
+_Service = ""Banca"", TOTALMTD(SUM(CIF_TRANS_AMT[EOM_BALANCE] ),Dim_Date[Date] ),
+_Service = ""Bond"", TOTALMTD(SUM(CIF_TRANS_AMT[BALANCE_WEEK] ),Dim_Date[Date]), 
+1=1 , CALCULATE( _Sum_bal, CIF_TRANS_AMT[SERVICE]  = _Service), _Sum_bal )
+",CIF_TRANS_AMT,BALANCE_WEEK,No of cust by type
+Amt service,"
+Var _Service = SELECTEDVALUE( CIF_TRANS_AMT[SERVICE])
+var _Sum_bal = sum(CIF_TRANS_AMT[BALANCE_WEEK] )
+Var _Max = LASTNONBLANK( Dim_Date[Date], [No of cust by type] )
+return 
+SWITCH(true(),
+_Service = ""Banca"", TOTALMTD(SUM(CIF_TRANS_AMT[EOM_BALANCE] ),Dim_Date[Date] ),
+_Service = ""Bond"", TOTALMTD(SUM(CIF_TRANS_AMT[BALANCE_WEEK] ),Dim_Date[Date]), 
+1=1 , CALCULATE( _Sum_bal, CIF_TRANS_AMT[SERVICE]  = _Service), _Sum_bal )
+",CIF_TRANS_AMT,SERVICE,No of cust by type
+Amt service,"
+Var _Service = SELECTEDVALUE( CIF_TRANS_AMT[SERVICE])
+var _Sum_bal = sum(CIF_TRANS_AMT[BALANCE_WEEK] )
+Var _Max = LASTNONBLANK( Dim_Date[Date], [No of cust by type] )
+return 
+SWITCH(true(),
+_Service = ""Banca"", TOTALMTD(SUM(CIF_TRANS_AMT[EOM_BALANCE] ),Dim_Date[Date] ),
+_Service = ""Bond"", TOTALMTD(SUM(CIF_TRANS_AMT[BALANCE_WEEK] ),Dim_Date[Date]), 
+1=1 , CALCULATE( _Sum_bal, CIF_TRANS_AMT[SERVICE]  = _Service), _Sum_bal )
+",CIF_TRANS_AMT,EOM_BALANCE,No of cust by type
+Amt service,"
+Var _Service = SELECTEDVALUE( CIF_TRANS_AMT[SERVICE])
+var _Sum_bal = sum(CIF_TRANS_AMT[BALANCE_WEEK] )
+Var _Max = LASTNONBLANK( Dim_Date[Date], [No of cust by type] )
+return 
+SWITCH(true(),
+_Service = ""Banca"", TOTALMTD(SUM(CIF_TRANS_AMT[EOM_BALANCE] ),Dim_Date[Date] ),
+_Service = ""Bond"", TOTALMTD(SUM(CIF_TRANS_AMT[BALANCE_WEEK] ),Dim_Date[Date]), 
+1=1 , CALCULATE( _Sum_bal, CIF_TRANS_AMT[SERVICE]  = _Service), _Sum_bal )
+",Dim_Date,Date,No of cust by type
+Amt Service LM,"
+Var _service = SELECTEDVALUE(CIF_TRANS_AMT[SERVICE])
+return 
+    SWITCH(true(),
+        1=1, CALCULATE([Amt service], DATEADD(Dim_Date[Date], -1, month), CIF_TRANS_AMT[SERVICE] = _service), [Amt service] )",CIF_TRANS_AMT,SERVICE,Amt service
+Amt Service LM,"
+Var _service = SELECTEDVALUE(CIF_TRANS_AMT[SERVICE])
+return 
+    SWITCH(true(),
+        1=1, CALCULATE([Amt service], DATEADD(Dim_Date[Date], -1, month), CIF_TRANS_AMT[SERVICE] = _service), [Amt service] )",Dim_Date,Date,Amt service
+Amt Service L2M,"
+Var _service = SELECTEDVALUE(CIF_TRANS_AMT[SERVICE])
+return 
+    SWITCH(true(),
+        1=1, CALCULATE([Amt service], DATEADD(Dim_Date[Date], -2, month), CIF_TRANS_AMT[SERVICE] = _service), [Amt service] )",CIF_TRANS_AMT,SERVICE,Amt service
+Amt Service L2M,"
+Var _service = SELECTEDVALUE(CIF_TRANS_AMT[SERVICE])
+return 
+    SWITCH(true(),
+        1=1, CALCULATE([Amt service], DATEADD(Dim_Date[Date], -2, month), CIF_TRANS_AMT[SERVICE] = _service), [Amt service] )",Dim_Date,Date,Amt service
+Header,"CONCATENATE( ""Data as of: "", format (LASTNONBLANK(Dim_Date[Date], [No of NTB] ),""dd/mm/yyyy"") )",Dim_Date,Date,No of NTB
+Same period LY,"CALCULATE( [No of NTB], DATEADD(Dim_Date[Date], -1, Year) )",Dim_Date,Date,No of NTB
+Amt Service LY,"
+Var _service = SELECTEDVALUE(CIF_TRANS_AMT[SERVICE])
+return 
+    SWITCH(true(),
+        1=1, CALCULATE([Amt service], DATEADD(Dim_Date[Date], -1, YEAR), ALL_CIF_TRANS_TNX[SERVICE] = _service), [Amt service] )",CIF_TRANS_AMT,SERVICE,Amt service
+Amt Service LY,"
+Var _service = SELECTEDVALUE(CIF_TRANS_AMT[SERVICE])
+return 
+    SWITCH(true(),
+        1=1, CALCULATE([Amt service], DATEADD(Dim_Date[Date], -1, YEAR), ALL_CIF_TRANS_TNX[SERVICE] = _service), [Amt service] )",ALL_CIF_TRANS_TNX,SERVICE,Amt service
+Amt Service LY,"
+Var _service = SELECTEDVALUE(CIF_TRANS_AMT[SERVICE])
+return 
+    SWITCH(true(),
+        1=1, CALCULATE([Amt service], DATEADD(Dim_Date[Date], -1, YEAR), ALL_CIF_TRANS_TNX[SERVICE] = _service), [Amt service] )",Dim_Date,Date,Amt service
+Number EB regist,"
+Var _EB = SELECTEDVALUE(ALL_CIF[EB_REGIST] )
+return
+    SWITCH(true(),
+        1=1, CALCULATE([No of NTB], ALL_CIF[EB_REGIST] = _EB ))",ALL_CIF,EB_REGIST,No of NTB
+EB NTB,"CALCULATE([No of NTB], ALL_CIF[EB_REGIST] =""EB_NTB"")",ALL_CIF,EB_REGIST,No of NTB
+EB NTB Active in month,"CALCULATE([EB NTB], ALL_CIF[NTB_LOGIN_EB] =""Y"")",ALL_CIF,NTB_LOGIN_EB,EB NTB
+NTB All CIF,SUM(ALL_CIF[NUMBER_CUST]),ALL_CIF,NUMBER_CUST,
+Accumulate all cif,"CALCULATE([NTB All CIF] ,DATESINPERIOD(
+        Dim_Date[Date],
+        MAX( Dim_Date[Date]),
+        -500,
+        MONTH))",Dim_Date,Date,NTB All CIF
+No of cust by type,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+ return 
+SWITCH(True(),
+            _type = ""ETB"", [ETB all cif] - [CIF ACTIVE ETB] ,//[All CIF ETB closed],
+            _type = ""NTB"", [NTB All CIF] - [CIF ACTIVE NTB],//[ALL CIF NTB Closed],
+ [NTB All CIF]  + [ETB all cif] - [CIF ACTIVE ETB] - [CIF ACTIVE NTB]
+ //- [All CIF ETB closed]
+ //- [ALL CIF NTB Closed] 
+)
+            ",Dim_Client_type,Client_type,ETB all cif
+Total eb ntb become etb EB,"
+
+var _max = DATEADD( LASTDATE(Dim_Date[Date]), -1, month)
+return 
+ SWITCH( true(),
+ 1=1, CALCULATE(SUM(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""NTB"", Dim_Date[Date] <= _max))",Dim_Date,Date,
+Total eb ntb become etb EB,"
+
+var _max = DATEADD( LASTDATE(Dim_Date[Date]), -1, month)
+return 
+ SWITCH( true(),
+ 1=1, CALCULATE(SUM(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""NTB"", Dim_Date[Date] <= _max))",CIF_EB_TRACKING,NUM_CUST,
+Total eb ntb become etb EB,"
+
+var _max = DATEADD( LASTDATE(Dim_Date[Date]), -1, month)
+return 
+ SWITCH( true(),
+ 1=1, CALCULATE(SUM(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""NTB"", Dim_Date[Date] <= _max))",CIF_EB_TRACKING,EB_REGIST,
+NTB all SPLM,"
+CALCULATE( [NTB All CIF], DATEADD(Dim_Date[Date], -1, MONTH ) )",Dim_Date,Date,NTB All CIF
+NTB accumulate LM,"
+var _max = LASTNONBLANK(Dim_Date[Date], [No of cust by type])
+return 
+CALCULATE( [NTB All CIF], DATEADD(FILTER( DATESMTD(Dim_Date[Date] ), Dim_Date[Date]<= _max ), -1, MONTH ) )",Dim_Date,Date,No of cust by type
+ALL CIF NTB Closed,"CALCULATE(SUM(CIF_CLOSED[NO_CIF_CLOSED]), 
+                                DATESINPERIOD( Dim_Date[Date], MAX(Dim_Date[Date]), -500, month ) ,  CIF_CLOSED[CIF_CLOSED] =""NTB_Closed"")",CIF_CLOSED,NO_CIF_CLOSED,
+ALL CIF NTB Closed,"CALCULATE(SUM(CIF_CLOSED[NO_CIF_CLOSED]), 
+                                DATESINPERIOD( Dim_Date[Date], MAX(Dim_Date[Date]), -500, month ) ,  CIF_CLOSED[CIF_CLOSED] =""NTB_Closed"")",Dim_Date,Date,
+ALL CIF NTB Closed,"CALCULATE(SUM(CIF_CLOSED[NO_CIF_CLOSED]), 
+                                DATESINPERIOD( Dim_Date[Date], MAX(Dim_Date[Date]), -500, month ) ,  CIF_CLOSED[CIF_CLOSED] =""NTB_Closed"")",CIF_CLOSED,CIF_CLOSED,
+CIF closed ETB,"CALCULATE(SUM(CIF_CLOSED[NO_CIF_CLOSED]), CIF_CLOSED[CIF_CLOSED] =""ETB_Closed"")",CIF_CLOSED,NO_CIF_CLOSED,
+CIF closed ETB,"CALCULATE(SUM(CIF_CLOSED[NO_CIF_CLOSED]), CIF_CLOSED[CIF_CLOSED] =""ETB_Closed"")",CIF_CLOSED,CIF_CLOSED,
+CIF NTB not closed,"
+var _type1 = SELECTEDVALUE( Dim_Client_type[Client_type])
+return 
+SWITCH(true(),
+       1=1, [NTB All CIF] - [ALL CIF NTB Closed]
+    )",Dim_Client_type,Client_type,NTB All CIF
+CIF ETB not closed,"
+var _type1 = SELECTEDVALUE( Dim_Client_type[Client_type])
+return  
+    SWITCH(true(),
+            1=1, [ETB all cif] - [All CIF ETB closed]
+    )",Dim_Client_type,Client_type,ETB all cif
+All CIF ETB closed,"CALCULATE( sum (CIF_CLOSED[NO_CIF_CLOSED]), 
+                            DATESINPERIOD( Dim_Date[Date], MAX(Dim_Date[Date]), -500, month ) , CIF_CLOSED[CIF_CLOSED] =""ETB_Closed"")",CIF_CLOSED,NO_CIF_CLOSED,
+All CIF ETB closed,"CALCULATE( sum (CIF_CLOSED[NO_CIF_CLOSED]), 
+                            DATESINPERIOD( Dim_Date[Date], MAX(Dim_Date[Date]), -500, month ) , CIF_CLOSED[CIF_CLOSED] =""ETB_Closed"")",Dim_Date,Date,
+All CIF ETB closed,"CALCULATE( sum (CIF_CLOSED[NO_CIF_CLOSED]), 
+                            DATESINPERIOD( Dim_Date[Date], MAX(Dim_Date[Date]), -500, month ) , CIF_CLOSED[CIF_CLOSED] =""ETB_Closed"")",CIF_CLOSED,CIF_CLOSED,
+Test1,"TOTALYTD([No of NTB closed], Dim_Date[Date] )",Dim_Date,Date,No of NTB closed
+TestTest2,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+ return 
+SWITCH(True(),
+            _type = ""ETB"", [ETB all cif] - [All CIF ETB closed] , [NTB All CIF] + [ETB all cif] - [All CIF ETB closed] )",Dim_Client_type,Client_type,ETB all cif
+ALL NTB EB,"CALCULATE( sum(CIF_EB_TRACKING[NUM_CUST]), OR (CIF_EB_TRACKING[EB_REGIST]  = ""NTB"", CIF_EB_TRACKING[EB_REGIST] = ""S3_EB_NEW"" )) + CALCULATE( sum(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""HDSS_EB_NEW"") ",CIF_EB_TRACKING,NUM_CUST,
+ALL NTB EB,"CALCULATE( sum(CIF_EB_TRACKING[NUM_CUST]), OR (CIF_EB_TRACKING[EB_REGIST]  = ""NTB"", CIF_EB_TRACKING[EB_REGIST] = ""S3_EB_NEW"" )) + CALCULATE( sum(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""HDSS_EB_NEW"") ",CIF_EB_TRACKING,EB_REGIST,
+ALL ETB EB,"
+var _max = EOMONTH (Max(Dim_Date[Date]), -1)  // DATEADD( LASTDATE(Dim_Date[Date]), -1, month)
+return 
+CALCULATE( sum(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""ETB"", DATESINPERIOD(Dim_Date[Date],MAX( Dim_Date[Date]),-500,MONTH)) + CALCULATE(SUM(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""NTB"", Dim_Date[Date] <= _max) + CALCULATE(SUM(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""S3_EB_NEW"", Dim_Date[Date] <= _max) + + CALCULATE(SUM(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""HDSS_EB_NEW"", Dim_Date[Date] <= _max)",Dim_Date,Date,
+ALL ETB EB,"
+var _max = EOMONTH (Max(Dim_Date[Date]), -1)  // DATEADD( LASTDATE(Dim_Date[Date]), -1, month)
+return 
+CALCULATE( sum(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""ETB"", DATESINPERIOD(Dim_Date[Date],MAX( Dim_Date[Date]),-500,MONTH)) + CALCULATE(SUM(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""NTB"", Dim_Date[Date] <= _max) + CALCULATE(SUM(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""S3_EB_NEW"", Dim_Date[Date] <= _max) + + CALCULATE(SUM(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""HDSS_EB_NEW"", Dim_Date[Date] <= _max)",CIF_EB_TRACKING,NUM_CUST,
+ALL ETB EB,"
+var _max = EOMONTH (Max(Dim_Date[Date]), -1)  // DATEADD( LASTDATE(Dim_Date[Date]), -1, month)
+return 
+CALCULATE( sum(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""ETB"", DATESINPERIOD(Dim_Date[Date],MAX( Dim_Date[Date]),-500,MONTH)) + CALCULATE(SUM(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""NTB"", Dim_Date[Date] <= _max) + CALCULATE(SUM(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""S3_EB_NEW"", Dim_Date[Date] <= _max) + + CALCULATE(SUM(CIF_EB_TRACKING[NUM_CUST]), CIF_EB_TRACKING[EB_REGIST] =""HDSS_EB_NEW"", Dim_Date[Date] <= _max)",CIF_EB_TRACKING,EB_REGIST,
+No of cust by type splm,"
+ var _max1 = LASTNONBLANK(Dim_Date[Date] , [No of NTB] )
+Return 
+CALCULATE( [No of cust by type] , DATEADD( FILTER( DATESMTD(Dim_Date[Date] ), Dim_Date[Date]<= _max1 ), -1, MONTH ))",Dim_Date,Date,No of NTB
+No of cust by type SPLY,"
+var _max1 = LASTNONBLANK(Dim_Date[Date] , [No of NTB] )
+Return 
+CALCULATE( [No of cust by type] , DATEADD( FILTER( DATESMTD(Dim_Date[Date] ), Dim_Date[Date]<= _max1 ), -1, Year ))",Dim_Date,Date,No of NTB
+No of NTB closed,"CALCULATE(sum (ALL_CIF[NUMBER_CUST]), ALL_CIF[CIF_CLOSED_TYPE] =""NTB_Closed"")",ALL_CIF,CIF_CLOSED_TYPE,
+No of NTB closed,"CALCULATE(sum (ALL_CIF[NUMBER_CUST]), ALL_CIF[CIF_CLOSED_TYPE] =""NTB_Closed"")",ALL_CIF,NUMBER_CUST,
+No of NTB closed YTD,"TOTALYTD([No of NTB closed] , Dim_Date[Date] )",Dim_Date,Date,No of NTB closed
+Total EB regist,"
+Var _type = SELECTEDVALUE( Dim_Client_type[Client_type] )
+return 
+    SWITCH(true(),
+        _type =""ETB"", [ALL ETB EB], 
+        _type =""NTB"", [ALL NTB EB]
+        )",Dim_Client_type,Client_type,ALL ETB EB
+No of cust by type & status,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+var _closed = SELECTEDVALUE(Dim_CLOSED_FLAG[Closed_cif])
+var _max = MAX(Dim_Date[Date] )
+ return 
+SWITCH(True(),
+           // and ( _type = ""ETB"", _closed =""Active""), [ETB all cif] - [All CIF ETB closed],
+           // and ( _type = ""NTB"", _closed =""Active"" ), [NTB All CIF]- [ALL CIF NTB Closed],
+           // _closed =""Active"" , [NTB All CIF] + [ETB all cif] - [All CIF ETB closed] - [ALL CIF NTB Closed],
+          //  and ( _type = ""NTB"", _closed =""Closed""), [ALL CIF NTB Closed],
+          //  and ( _type = ""ETB"", _closed =""Closed""), [All CIF ETB closed],
+           // _closed =""Closed"" , [All CIF ETB closed] + [ALL CIF NTB Closed], 
+           _type = ""ETB"" , [ETB all cif], 
+           _type = ""NTB"", [NTB All CIF],
+           1=1, [NTB All CIF] + [ETB all cif] 
+             )",Dim_Date,Date,ETB all cif
+No of cust by type & status,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+var _closed = SELECTEDVALUE(Dim_CLOSED_FLAG[Closed_cif])
+var _max = MAX(Dim_Date[Date] )
+ return 
+SWITCH(True(),
+           // and ( _type = ""ETB"", _closed =""Active""), [ETB all cif] - [All CIF ETB closed],
+           // and ( _type = ""NTB"", _closed =""Active"" ), [NTB All CIF]- [ALL CIF NTB Closed],
+           // _closed =""Active"" , [NTB All CIF] + [ETB all cif] - [All CIF ETB closed] - [ALL CIF NTB Closed],
+          //  and ( _type = ""NTB"", _closed =""Closed""), [ALL CIF NTB Closed],
+          //  and ( _type = ""ETB"", _closed =""Closed""), [All CIF ETB closed],
+           // _closed =""Closed"" , [All CIF ETB closed] + [ALL CIF NTB Closed], 
+           _type = ""ETB"" , [ETB all cif], 
+           _type = ""NTB"", [NTB All CIF],
+           1=1, [NTB All CIF] + [ETB all cif] 
+             )",Dim_Client_type,Client_type,ETB all cif
+No of cust by type & status,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+var _closed = SELECTEDVALUE(Dim_CLOSED_FLAG[Closed_cif])
+var _max = MAX(Dim_Date[Date] )
+ return 
+SWITCH(True(),
+           // and ( _type = ""ETB"", _closed =""Active""), [ETB all cif] - [All CIF ETB closed],
+           // and ( _type = ""NTB"", _closed =""Active"" ), [NTB All CIF]- [ALL CIF NTB Closed],
+           // _closed =""Active"" , [NTB All CIF] + [ETB all cif] - [All CIF ETB closed] - [ALL CIF NTB Closed],
+          //  and ( _type = ""NTB"", _closed =""Closed""), [ALL CIF NTB Closed],
+          //  and ( _type = ""ETB"", _closed =""Closed""), [All CIF ETB closed],
+           // _closed =""Closed"" , [All CIF ETB closed] + [ALL CIF NTB Closed], 
+           _type = ""ETB"" , [ETB all cif], 
+           _type = ""NTB"", [NTB All CIF],
+           1=1, [NTB All CIF] + [ETB all cif] 
+             )",Dim_CLOSED_FLAG,Closed_cif,ETB all cif
+No of cust by type & status splm,"
+ var _max1 = max(Active_cif[REPORT_DATE]) //LASTNONBLANK(Dim_Date[Date] , [No of NTB] )
+Return 
+CALCULATE([No of cust by type & status YTD] , Dim_Date[Date] = EOMONTH(EDATE(_max1,-1),0) ) //DATEADD( FILTER( DATESMTD(Dim_Date[Date]) , Dim_Date[Date]<= _max1 ), -1, MONTH ))",Dim_Date,Date,No of NTB
+No of cust by type & status splm,"
+ var _max1 = max(Active_cif[REPORT_DATE]) //LASTNONBLANK(Dim_Date[Date] , [No of NTB] )
+Return 
+CALCULATE([No of cust by type & status YTD] , Dim_Date[Date] = EOMONTH(EDATE(_max1,-1),0) ) //DATEADD( FILTER( DATESMTD(Dim_Date[Date]) , Dim_Date[Date]<= _max1 ), -1, MONTH ))",Active_cif,REPORT_DATE,No of NTB
+No of cust by type & status SPLY,"
+var _max1 = max(Active_cif[REPORT_DATE]) //LASTNONBLANK(Dim_Date[Date] , [No of NTB] )
+Return 
+CALCULATE( [No of cust by type & status YTD] , Dim_Date[Date] = EOMONTH(EDATE(_max1,-12),0) ) //DATEADD( FILTER( DATESMTD(Dim_Date[Date] ), Dim_Date[Date]<= _max1 ), -1, Year ))",Dim_Date,Date,No of NTB
+No of cust by type & status SPLY,"
+var _max1 = max(Active_cif[REPORT_DATE]) //LASTNONBLANK(Dim_Date[Date] , [No of NTB] )
+Return 
+CALCULATE( [No of cust by type & status YTD] , Dim_Date[Date] = EOMONTH(EDATE(_max1,-12),0) ) //DATEADD( FILTER( DATESMTD(Dim_Date[Date] ), Dim_Date[Date]<= _max1 ), -1, Year ))",Active_cif,REPORT_DATE,No of NTB
+Date add,"DATEADD( Dim_Date[Date], -1, month)",Dim_Date,Date,
+No of cust by type & status YTD,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+var _closed = SELECTEDVALUE(Dim_CLOSED_FLAG[Closed_cif])
+var _max = MAX(Active_cif[REPORT_DATE])
+ return 
+SWITCH(True(),
+_type = ""ETB"" , CALCULATE(sum(Active_cif[Cust_num]),Active_cif[CUST_TYPE] =""ETB"", Dim_Date[Date]=_max) - [CIF ACTIVE ETB],
+_type = ""NTB"", CALCULATE(sum(Active_cif[Cust_num]),Active_cif[CUST_TYPE] =""NTB"", Dim_Date[Date]=_max) - [CIF ACTIVE NTB],
+1=1, CALCULATE(sum(Active_cif[Cust_num]), Dim_Date[Date]= _max) - [Cif Only removed] )
+           //and ( _type = ""ETB"", _closed =""Active""), [ETB all cif] - [All CIF ETB closed],
+           //and ( _type = ""NTB"", _closed =""Active"" ), TOTALYTD([NTB All CIF],Dim_Date[Date])- [ALL CIF NTB Closed],
+          // _closed =""Active"" , [NTB All CIF] + [ETB all cif] - [All CIF ETB closed] - [ALL CIF NTB Closed],
+          // and ( _type = ""NTB"", _closed =""Closed""), TOTALYTD([ALL CIF NTB Closed], Dim_Date[Date] ),
+          // and ( _type = ""ETB"", _closed =""Closed""), [All CIF ETB closed],
+          // _closed =""Closed"" , [All CIF ETB closed] +[ALL CIF NTB Closed] , 
+          // _type = ""ETB"" , [ETB all cif], 
+          // _type = ""NTB"", TOTALYTD([NTB All CIF],Dim_Date[Date]),
+          // 1=1, [NTB All CIF] + [ETB all cif] 
+             ",Active_cif,Cust_num,CIF ACTIVE ETB
+No of cust by type & status YTD,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+var _closed = SELECTEDVALUE(Dim_CLOSED_FLAG[Closed_cif])
+var _max = MAX(Active_cif[REPORT_DATE])
+ return 
+SWITCH(True(),
+_type = ""ETB"" , CALCULATE(sum(Active_cif[Cust_num]),Active_cif[CUST_TYPE] =""ETB"", Dim_Date[Date]=_max) - [CIF ACTIVE ETB],
+_type = ""NTB"", CALCULATE(sum(Active_cif[Cust_num]),Active_cif[CUST_TYPE] =""NTB"", Dim_Date[Date]=_max) - [CIF ACTIVE NTB],
+1=1, CALCULATE(sum(Active_cif[Cust_num]), Dim_Date[Date]= _max) - [Cif Only removed] )
+           //and ( _type = ""ETB"", _closed =""Active""), [ETB all cif] - [All CIF ETB closed],
+           //and ( _type = ""NTB"", _closed =""Active"" ), TOTALYTD([NTB All CIF],Dim_Date[Date])- [ALL CIF NTB Closed],
+          // _closed =""Active"" , [NTB All CIF] + [ETB all cif] - [All CIF ETB closed] - [ALL CIF NTB Closed],
+          // and ( _type = ""NTB"", _closed =""Closed""), TOTALYTD([ALL CIF NTB Closed], Dim_Date[Date] ),
+          // and ( _type = ""ETB"", _closed =""Closed""), [All CIF ETB closed],
+          // _closed =""Closed"" , [All CIF ETB closed] +[ALL CIF NTB Closed] , 
+          // _type = ""ETB"" , [ETB all cif], 
+          // _type = ""NTB"", TOTALYTD([NTB All CIF],Dim_Date[Date]),
+          // 1=1, [NTB All CIF] + [ETB all cif] 
+             ",Dim_Client_type,Client_type,CIF ACTIVE ETB
+No of cust by type & status YTD,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+var _closed = SELECTEDVALUE(Dim_CLOSED_FLAG[Closed_cif])
+var _max = MAX(Active_cif[REPORT_DATE])
+ return 
+SWITCH(True(),
+_type = ""ETB"" , CALCULATE(sum(Active_cif[Cust_num]),Active_cif[CUST_TYPE] =""ETB"", Dim_Date[Date]=_max) - [CIF ACTIVE ETB],
+_type = ""NTB"", CALCULATE(sum(Active_cif[Cust_num]),Active_cif[CUST_TYPE] =""NTB"", Dim_Date[Date]=_max) - [CIF ACTIVE NTB],
+1=1, CALCULATE(sum(Active_cif[Cust_num]), Dim_Date[Date]= _max) - [Cif Only removed] )
+           //and ( _type = ""ETB"", _closed =""Active""), [ETB all cif] - [All CIF ETB closed],
+           //and ( _type = ""NTB"", _closed =""Active"" ), TOTALYTD([NTB All CIF],Dim_Date[Date])- [ALL CIF NTB Closed],
+          // _closed =""Active"" , [NTB All CIF] + [ETB all cif] - [All CIF ETB closed] - [ALL CIF NTB Closed],
+          // and ( _type = ""NTB"", _closed =""Closed""), TOTALYTD([ALL CIF NTB Closed], Dim_Date[Date] ),
+          // and ( _type = ""ETB"", _closed =""Closed""), [All CIF ETB closed],
+          // _closed =""Closed"" , [All CIF ETB closed] +[ALL CIF NTB Closed] , 
+          // _type = ""ETB"" , [ETB all cif], 
+          // _type = ""NTB"", TOTALYTD([NTB All CIF],Dim_Date[Date]),
+          // 1=1, [NTB All CIF] + [ETB all cif] 
+             ",Active_cif,REPORT_DATE,CIF ACTIVE ETB
+No of cust by type & status YTD,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+var _closed = SELECTEDVALUE(Dim_CLOSED_FLAG[Closed_cif])
+var _max = MAX(Active_cif[REPORT_DATE])
+ return 
+SWITCH(True(),
+_type = ""ETB"" , CALCULATE(sum(Active_cif[Cust_num]),Active_cif[CUST_TYPE] =""ETB"", Dim_Date[Date]=_max) - [CIF ACTIVE ETB],
+_type = ""NTB"", CALCULATE(sum(Active_cif[Cust_num]),Active_cif[CUST_TYPE] =""NTB"", Dim_Date[Date]=_max) - [CIF ACTIVE NTB],
+1=1, CALCULATE(sum(Active_cif[Cust_num]), Dim_Date[Date]= _max) - [Cif Only removed] )
+           //and ( _type = ""ETB"", _closed =""Active""), [ETB all cif] - [All CIF ETB closed],
+           //and ( _type = ""NTB"", _closed =""Active"" ), TOTALYTD([NTB All CIF],Dim_Date[Date])- [ALL CIF NTB Closed],
+          // _closed =""Active"" , [NTB All CIF] + [ETB all cif] - [All CIF ETB closed] - [ALL CIF NTB Closed],
+          // and ( _type = ""NTB"", _closed =""Closed""), TOTALYTD([ALL CIF NTB Closed], Dim_Date[Date] ),
+          // and ( _type = ""ETB"", _closed =""Closed""), [All CIF ETB closed],
+          // _closed =""Closed"" , [All CIF ETB closed] +[ALL CIF NTB Closed] , 
+          // _type = ""ETB"" , [ETB all cif], 
+          // _type = ""NTB"", TOTALYTD([NTB All CIF],Dim_Date[Date]),
+          // 1=1, [NTB All CIF] + [ETB all cif] 
+             ",Active_cif,CUST_TYPE,CIF ACTIVE ETB
+No of cust by type & status YTD,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+var _closed = SELECTEDVALUE(Dim_CLOSED_FLAG[Closed_cif])
+var _max = MAX(Active_cif[REPORT_DATE])
+ return 
+SWITCH(True(),
+_type = ""ETB"" , CALCULATE(sum(Active_cif[Cust_num]),Active_cif[CUST_TYPE] =""ETB"", Dim_Date[Date]=_max) - [CIF ACTIVE ETB],
+_type = ""NTB"", CALCULATE(sum(Active_cif[Cust_num]),Active_cif[CUST_TYPE] =""NTB"", Dim_Date[Date]=_max) - [CIF ACTIVE NTB],
+1=1, CALCULATE(sum(Active_cif[Cust_num]), Dim_Date[Date]= _max) - [Cif Only removed] )
+           //and ( _type = ""ETB"", _closed =""Active""), [ETB all cif] - [All CIF ETB closed],
+           //and ( _type = ""NTB"", _closed =""Active"" ), TOTALYTD([NTB All CIF],Dim_Date[Date])- [ALL CIF NTB Closed],
+          // _closed =""Active"" , [NTB All CIF] + [ETB all cif] - [All CIF ETB closed] - [ALL CIF NTB Closed],
+          // and ( _type = ""NTB"", _closed =""Closed""), TOTALYTD([ALL CIF NTB Closed], Dim_Date[Date] ),
+          // and ( _type = ""ETB"", _closed =""Closed""), [All CIF ETB closed],
+          // _closed =""Closed"" , [All CIF ETB closed] +[ALL CIF NTB Closed] , 
+          // _type = ""ETB"" , [ETB all cif], 
+          // _type = ""NTB"", TOTALYTD([NTB All CIF],Dim_Date[Date]),
+          // 1=1, [NTB All CIF] + [ETB all cif] 
+             ",Dim_CLOSED_FLAG,Closed_cif,CIF ACTIVE ETB
+No of cust by type & status YTD,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+var _closed = SELECTEDVALUE(Dim_CLOSED_FLAG[Closed_cif])
+var _max = MAX(Active_cif[REPORT_DATE])
+ return 
+SWITCH(True(),
+_type = ""ETB"" , CALCULATE(sum(Active_cif[Cust_num]),Active_cif[CUST_TYPE] =""ETB"", Dim_Date[Date]=_max) - [CIF ACTIVE ETB],
+_type = ""NTB"", CALCULATE(sum(Active_cif[Cust_num]),Active_cif[CUST_TYPE] =""NTB"", Dim_Date[Date]=_max) - [CIF ACTIVE NTB],
+1=1, CALCULATE(sum(Active_cif[Cust_num]), Dim_Date[Date]= _max) - [Cif Only removed] )
+           //and ( _type = ""ETB"", _closed =""Active""), [ETB all cif] - [All CIF ETB closed],
+           //and ( _type = ""NTB"", _closed =""Active"" ), TOTALYTD([NTB All CIF],Dim_Date[Date])- [ALL CIF NTB Closed],
+          // _closed =""Active"" , [NTB All CIF] + [ETB all cif] - [All CIF ETB closed] - [ALL CIF NTB Closed],
+          // and ( _type = ""NTB"", _closed =""Closed""), TOTALYTD([ALL CIF NTB Closed], Dim_Date[Date] ),
+          // and ( _type = ""ETB"", _closed =""Closed""), [All CIF ETB closed],
+          // _closed =""Closed"" , [All CIF ETB closed] +[ALL CIF NTB Closed] , 
+          // _type = ""ETB"" , [ETB all cif], 
+          // _type = ""NTB"", TOTALYTD([NTB All CIF],Dim_Date[Date]),
+          // 1=1, [NTB All CIF] + [ETB all cif] 
+             ",Dim_Date,Date,CIF ACTIVE ETB
+CIF ACTIVE NTB,"CALCULATE(sum(Active_cif[Cust_num]), Active_cif[CUST_TYPE] =""NTB"", Active_cif[ACTIVE_PRODUCT] = ""N"")",Active_cif,CUST_TYPE,
+CIF ACTIVE NTB,"CALCULATE(sum(Active_cif[Cust_num]), Active_cif[CUST_TYPE] =""NTB"", Active_cif[ACTIVE_PRODUCT] = ""N"")",Active_cif,ACTIVE_PRODUCT,
+CIF ACTIVE NTB,"CALCULATE(sum(Active_cif[Cust_num]), Active_cif[CUST_TYPE] =""NTB"", Active_cif[ACTIVE_PRODUCT] = ""N"")",Active_cif,Cust_num,
+CIF ACTIVE ETB,"CALCULATE(sum(Active_cif[Cust_num]), Active_cif[CUST_TYPE] =""ETB"", Active_cif[ACTIVE_PRODUCT] = ""N"")",Active_cif,CUST_TYPE,
+CIF ACTIVE ETB,"CALCULATE(sum(Active_cif[Cust_num]), Active_cif[CUST_TYPE] =""ETB"", Active_cif[ACTIVE_PRODUCT] = ""N"")",Active_cif,ACTIVE_PRODUCT,
+CIF ACTIVE ETB,"CALCULATE(sum(Active_cif[Cust_num]), Active_cif[CUST_TYPE] =""ETB"", Active_cif[ACTIVE_PRODUCT] = ""N"")",Active_cif,Cust_num,
+Cif Only removed,"
+var _max = max(Active_cif[REPORT_DATE])
+return 
+CALCULATE(SUM(Active_cif[Cust_num]), Active_cif[ACTIVE_PRODUCT] =""N"", Dim_Date[Date] = _max)",Dim_Date,Date,
+Cif Only removed,"
+var _max = max(Active_cif[REPORT_DATE])
+return 
+CALCULATE(SUM(Active_cif[Cust_num]), Active_cif[ACTIVE_PRODUCT] =""N"", Dim_Date[Date] = _max)",Active_cif,REPORT_DATE,
+Cif Only removed,"
+var _max = max(Active_cif[REPORT_DATE])
+return 
+CALCULATE(SUM(Active_cif[Cust_num]), Active_cif[ACTIVE_PRODUCT] =""N"", Dim_Date[Date] = _max)",Active_cif,ACTIVE_PRODUCT,
+Cif Only removed,"
+var _max = max(Active_cif[REPORT_DATE])
+return 
+CALCULATE(SUM(Active_cif[Cust_num]), Active_cif[ACTIVE_PRODUCT] =""N"", Dim_Date[Date] = _max)",Active_cif,Cust_num,
+Number of active Cust.,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+var _closed = SELECTEDVALUE(Dim_CLOSED_FLAG[Closed_cif])
+var _max = MAX(Dim_Date[Date] )
+ return 
+SWITCH(True(),
+           // and ( _type = ""ETB"", _closed =""Active""), [ETB all cif] - [All CIF ETB closed],
+           // and ( _type = ""NTB"", _closed =""Active"" ), [NTB All CIF]- [ALL CIF NTB Closed],
+           // _closed =""Active"" , [NTB All CIF] + [ETB all cif] - [All CIF ETB closed] - [ALL CIF NTB Closed],
+          //  and ( _type = ""NTB"", _closed =""Closed""), [ALL CIF NTB Closed],
+          //  and ( _type = ""ETB"", _closed =""Closed""), [All CIF ETB closed],
+           // _closed =""Closed"" , [All CIF ETB closed] + [ALL CIF NTB Closed], 
+           _type = ""ETB"" , [ETB all cif] - [CIF ACTIVE ETB],
+           _type = ""NTB"", [NTB All CIF] - [CIF ACTIVE NTB],
+           1=1, [ETB all cif]+ [NTB All CIF] - [CIF ACTIVE ETB]  - [CIF ACTIVE NTB]
+             )",Dim_Date,Date,ETB all cif
+Number of active Cust.,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+var _closed = SELECTEDVALUE(Dim_CLOSED_FLAG[Closed_cif])
+var _max = MAX(Dim_Date[Date] )
+ return 
+SWITCH(True(),
+           // and ( _type = ""ETB"", _closed =""Active""), [ETB all cif] - [All CIF ETB closed],
+           // and ( _type = ""NTB"", _closed =""Active"" ), [NTB All CIF]- [ALL CIF NTB Closed],
+           // _closed =""Active"" , [NTB All CIF] + [ETB all cif] - [All CIF ETB closed] - [ALL CIF NTB Closed],
+          //  and ( _type = ""NTB"", _closed =""Closed""), [ALL CIF NTB Closed],
+          //  and ( _type = ""ETB"", _closed =""Closed""), [All CIF ETB closed],
+           // _closed =""Closed"" , [All CIF ETB closed] + [ALL CIF NTB Closed], 
+           _type = ""ETB"" , [ETB all cif] - [CIF ACTIVE ETB],
+           _type = ""NTB"", [NTB All CIF] - [CIF ACTIVE NTB],
+           1=1, [ETB all cif]+ [NTB All CIF] - [CIF ACTIVE ETB]  - [CIF ACTIVE NTB]
+             )",Dim_Client_type,Client_type,ETB all cif
+Number of active Cust.,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+var _closed = SELECTEDVALUE(Dim_CLOSED_FLAG[Closed_cif])
+var _max = MAX(Dim_Date[Date] )
+ return 
+SWITCH(True(),
+           // and ( _type = ""ETB"", _closed =""Active""), [ETB all cif] - [All CIF ETB closed],
+           // and ( _type = ""NTB"", _closed =""Active"" ), [NTB All CIF]- [ALL CIF NTB Closed],
+           // _closed =""Active"" , [NTB All CIF] + [ETB all cif] - [All CIF ETB closed] - [ALL CIF NTB Closed],
+          //  and ( _type = ""NTB"", _closed =""Closed""), [ALL CIF NTB Closed],
+          //  and ( _type = ""ETB"", _closed =""Closed""), [All CIF ETB closed],
+           // _closed =""Closed"" , [All CIF ETB closed] + [ALL CIF NTB Closed], 
+           _type = ""ETB"" , [ETB all cif] - [CIF ACTIVE ETB],
+           _type = ""NTB"", [NTB All CIF] - [CIF ACTIVE NTB],
+           1=1, [ETB all cif]+ [NTB All CIF] - [CIF ACTIVE ETB]  - [CIF ACTIVE NTB]
+             )",Dim_CLOSED_FLAG,Closed_cif,ETB all cif
+No of cust by type_Channel,"
+var _max = MAX(Active_cif[REPORT_DATE] )
+ return 
+SWITCH(True(),
+           1=1, CALCULATE(sum(Active_cif[Cust_num]),Dim_Date[Date] = _max) - CALCULATE(SUM(Active_cif[Cust_num]), Dim_Date[Date]=_max, Active_cif[ACTIVE_PRODUCT] =""N"")
+             )",Dim_Date,Date,
+No of cust by type_Channel,"
+var _max = MAX(Active_cif[REPORT_DATE] )
+ return 
+SWITCH(True(),
+           1=1, CALCULATE(sum(Active_cif[Cust_num]),Dim_Date[Date] = _max) - CALCULATE(SUM(Active_cif[Cust_num]), Dim_Date[Date]=_max, Active_cif[ACTIVE_PRODUCT] =""N"")
+             )",Active_cif,REPORT_DATE,
+No of cust by type_Channel,"
+var _max = MAX(Active_cif[REPORT_DATE] )
+ return 
+SWITCH(True(),
+           1=1, CALCULATE(sum(Active_cif[Cust_num]),Dim_Date[Date] = _max) - CALCULATE(SUM(Active_cif[Cust_num]), Dim_Date[Date]=_max, Active_cif[ACTIVE_PRODUCT] =""N"")
+             )",Active_cif,ACTIVE_PRODUCT,
+No of cust by type_Channel,"
+var _max = MAX(Active_cif[REPORT_DATE] )
+ return 
+SWITCH(True(),
+           1=1, CALCULATE(sum(Active_cif[Cust_num]),Dim_Date[Date] = _max) - CALCULATE(SUM(Active_cif[Cust_num]), Dim_Date[Date]=_max, Active_cif[ACTIVE_PRODUCT] =""N"")
+             )",Active_cif,Cust_num,
+No of cust by type _TOTAL CIF,"
+var _type = SELECTEDVALUE(Dim_Client_type[Client_type] )
+ return 
+SWITCH(True(),
+            _type = ""ETB"", [ETB all cif] ,//- [All CIF ETB closed],
+            _type = ""NTB"", [NTB All CIF],// - [ALL CIF NTB Closed],
+ [NTB All CIF]  + [ETB all cif] 
+//- [All CIF ETB closed]
+ //- [ALL CIF NTB Closed] 
+)",Dim_Client_type,Client_type,ETB all cif
